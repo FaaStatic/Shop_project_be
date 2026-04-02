@@ -1,7 +1,7 @@
 package configdb
 
 import (
-	"shop_project_be/internal/models"
+	"shop_project_be/internal/domain"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -20,7 +20,7 @@ func InitDB() *gorm.DB {
 	if err != nil {
 		panic("Failed Connect to Database!")
 	}
-	err = db.AutoMigrate(&models.Users{}, &models.Products{}, &models.Transactions{}, &models.Customers{}, &models.Debts{}, &models.DebtPayments{}, &models.TransactionsDetail{})
+	err = db.AutoMigrate(&domain.Users{}, &domain.Products{}, &domain.Transactions{}, &domain.Customers{}, &domain.Debts{}, &domain.DebtPayments{}, &domain.TransactionsDetail{})
 	if err != nil {
 		panic("Failed to migrate database!")
 	}

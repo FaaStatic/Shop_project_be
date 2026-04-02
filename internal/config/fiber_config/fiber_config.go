@@ -15,9 +15,11 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/csrf"
 	"github.com/gofiber/fiber/v3/middleware/encryptcookie"
 	"github.com/gofiber/fiber/v3/middleware/helmet"
+	"github.com/gofiber/fiber/v3/middleware/recover"
+	"go.uber.org/zap"
 )
 
-func GetFiberConfig() fiber.Config {
+func GetFiberConfig(logger *zap.Logger) fiber.Config {
 	return fiber.Config{
 		JSONEncoder:   sonic.Marshal,
 		JSONDecoder:   sonic.Unmarshal,
@@ -29,6 +31,27 @@ func GetFiberConfig() fiber.Config {
 		BodyLimit:     1024 * 1024 * 1024,
 		CaseSensitive: true,
 		StrictRouting: true,
+		ErrorHandler: func(c fiber.Ctx, err error) error {
+			code := fiber.StatusInternalServerError
+			message := "something went wrong, please try again later"
+			if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+				message = e.Message
+			}
+			logger.Error("Aplikasi mengalami error atau panic",
+				zap.Error(err),
+				zap.Int("status_code", code),
+				zap.String("path", c.Path()),
+				zap.String("method", c.Method()),
+				zap.String("ip", c.IP()),
+			)
+
+			return c.Status(code).JSON(fiber.Map{
+				"success": false,
+				"code":    code,
+				"message": message,
+			})
+		},
 	}
 }
 
@@ -52,8 +75,11 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 }
 
 func InitFiber(env string) *fiber.App {
-	app := fiber.New(GetFiberConfig())
-	zapLogger := loggerconfig.LoggerCustom(env, app)
+	zapLogger := loggerconfig.LoggerCustom(env)
+	app := fiber.New(GetFiberConfig(zapLogger))
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: true,
+	}))
 	app.Use(helmet.New(middleware.GetXSSConfig()))
 	app.Use(compress.New(middleware.GetCompressConfig()))
 	app.Use(cors.New(middleware.GetCorsConfig()))
