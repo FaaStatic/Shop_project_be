@@ -2,7 +2,7 @@ package request
 
 type AddTransactionRequest struct {
 	NoInvoice        string                        `json:"no_invoice" validate:"required"`
-	TypePayment      string                        `json:"type_payment" validate:"required,oneof=cash credit_card debit_card"`
+	TypePayment      string                        `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
 	TotalTransaction float64                       `json:"total_price" validate:"required,gt=0"`
 	UserId           uint                          `json:"user_id" validate:"required"`
 	CustomerId       *uint                         `json:"customer_id,omitempty"`
@@ -16,11 +16,24 @@ type AddTransactionDetailRequest struct {
 }
 
 type GetTransactionRequest struct {
-	ID uint `json:"id" validate:"required"`
+	ID         uint `json:"id" validate:"required"`
+	UserId     uint `json:"user_id" validate:"required"`
+	CustomerId uint `json:"customer_id,omitempty"`
 }
 
 type FilterTransactionRequest struct {
-	NoInvoice  string `json:"no_invoice,omitempty"`
-	UserId     uint   `json:"user_id,omitempty"`
-	CustomerId uint   `json:"customer_id,omitempty"`
+	UserId        uint   `json:"user_id" validate:"required"`
+	DateStart     string `json:"date_start,omitempty"`
+	DateEnd       string `json:"date_end,omitempty"`
+	TypePayment   string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
+	SearchInvoice string `json:"number_invoices",omitempty"`
+}
+
+type DeleteTransactionRequest struct {
+	ID uint `json:"id" validate:"required"`
+}
+
+type PrintTransaction struct {
+	ID        uint   `json:"id" validate:"required"`
+	NoInvoice string `json:"number_invoice",omitempty"`
 }

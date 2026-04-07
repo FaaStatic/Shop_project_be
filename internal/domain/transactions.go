@@ -34,9 +34,14 @@ type TransactionsDetail struct {
 type TransactionRepository interface {
 	CreateTransaction(ctx *context.Context, transaction *Transactions) error
 	GetTransactionByID(ctx *context.Context, id uint) (*Transactions, error)
+	GetAllTransaction(ctx *context.Context) (*[]Transactions, error)
+	DeleteTransaction(ctx *context.Context, id uint) error
 }
 
 type TransactionUsecase interface {
 	AddTransaction(ctx *context.Context, transactionDto *request.AddTransactionDetailRequest) error
 	GetTransaction(ctx *context.Context, transactionDto *request.GetTransactionRequest) (*Transactions, error)
+	GetAllTransaction(ctx *context.Context, transactionDto *request.FilterTransactionRequest) (*[]Transactions, error)
+	DeleteTransaction(ctx *context.Context, transactionDto *request.DeleteTransactionRequest) error
+	PrintTransaction(ctx *context.Context, transactionDto *request.PrintTransaction) (*Transactions, error)
 }

@@ -24,3 +24,8 @@ type GetTransactionResponse struct {
 	CreatedAt        string                          `json:"created_at"`
 	DetailsTransaksi []GetProductTransactionResponse `json:"details"`
 }
+
+type GetAllTransactionResponse struct {
+	UserID          uint                     `json:"user_id"`
+	TransactionList []GetTransactionResponse `json:"list_transaction"`
+}
