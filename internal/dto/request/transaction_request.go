@@ -16,24 +16,31 @@ type AddTransactionDetailRequest struct {
 }
 
 type GetTransactionRequest struct {
-	ID         uint `json:"id" validate:"required"`
-	UserId     uint `json:"user_id" validate:"required"`
-	CustomerId uint `json:"customer_id,omitempty"`
+	ID         uint `query:"id" validate:"required"`
+	UserId     uint `query:"user_id" validate:"required"`
+	CustomerId uint `query:"customer_id,omitempty"`
 }
 
 type FilterTransactionRequest struct {
-	UserId        uint   `json:"user_id" validate:"required"`
-	DateStart     string `json:"date_start,omitempty"`
-	DateEnd       string `json:"date_end,omitempty"`
-	TypePayment   string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
-	SearchInvoice string `json:"number_invoices",omitempty"`
+	UserId        uint   `query:"user_id" validate:"required"`
+	DateStart     string `query:"date_start,omitempty"`
+	DateEnd       string `query:"date_end,omitempty"`
+	TypePayment   string `query:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
+	SearchInvoice string `query:"number_invoices",omitempty"`
 }
 
 type DeleteTransactionRequest struct {
-	ID uint `json:"id" validate:"required"`
+	ID uint `json:"trx_id" validate:"required"`
 }
 
-type PrintTransaction struct {
-	ID        uint   `json:"id" validate:"required"`
-	NoInvoice string `json:"number_invoice",omitempty"`
+type PrintReportTransactionRequest struct {
+	UserId    uint   `query:"user_id" validate:"required"`
+	TrxId     uint   `query:"trx_id,,omitempty"`
+	NoInvoice string `query:"number_invoice,omitempty"`
+}
+
+type PrintReportMonthRequest struct {
+	UserId uint `query:"user_id" validate:"required"`
+	Month  int  `query:"month"`
+	Year   int  `query:"year"`
 }
