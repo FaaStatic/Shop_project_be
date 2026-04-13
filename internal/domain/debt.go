@@ -39,5 +39,6 @@ type DebtRepository interface {
 
 type DebtUseCase interface {
 	AddingDebtCustomer(ctx *context.Context, request *request.AddDebtRequest) error
-	GetAllDebtCustomerList(ctx *context.Context, request *request.GetAllDebtRequest)
+	DeleteDebt(ctx *context.Context, request *request.DeleteDebtRequest) error
+	GetAllDebtCustomerList(ctx *context.Context, request *request.GetAllDebtRequest) error
 }

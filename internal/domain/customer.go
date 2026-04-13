@@ -9,3 +9,9 @@ type Customers struct {
 	Transactions []Transactions `gorm:"foreignKey:CustomerID" json:"transactions,omitempty"`
 	Debts        []Debts        `gorm:"foreignKey:CustomerID" json:"debts,omitempty"`
 }
+
+type CustomerRepository interface {
+}
+
+type CustomerUsecase interface {
+}
