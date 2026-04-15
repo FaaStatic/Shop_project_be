@@ -4,12 +4,14 @@ import (
 	"context"
 	"shop_project_be/internal/dto/request"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Transactions struct {
-	ID         uint   `gorm:"primaryKey" json:"id"`
+	ID         uint   `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	NoInvoice  string `gorm:"type:varchar(50);uniqueIndex;not null" json:"no_invoice"`
-	UserID     uint   `gorm:"not null" json:"user_id"`
+	UserID     uint   `gorm:"type:uuid;not null" json:"user_id"`
 	CustomerID *uint  `gorm:"column:customer_id" json:"customer_id"`
 	DebtID     *uint  `gorm:"column:debt_id;index" json:"debt_id"`
 
@@ -24,21 +26,21 @@ type Transactions struct {
 }
 
 type TransactionsDetail struct {
-	ID            uint    `gorm:"primaryKey" json:"id"`
-	TransactionID uint    `gorm:"not null" json:"transaction_id"`
-	ProductID     uint    `gorm:"not null" json:"product_id"`
-	Qty           float64 `gorm:"type:decimal(8,2);not null" json:"qty"`
-	Subtotal      float64 `gorm:"type:decimal(15,2);not null" json:"subtotal"`
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	TransactionID uuid.UUID `gorm:"type:uuid;not null" json:"transaction_id"`
+	ProductID     uuid.UUID `gorm:"type:uuid;not null" json:"product_id"`
+	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
+	Subtotal      float64   `gorm:"type:decimal(15,2);not null" json:"subtotal"`
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 }
 
 type TransactionRepository interface {
 	CreateTransaction(ctx *context.Context, transaction *Transactions) error
-	GetTransactionByID(ctx *context.Context, id uint) (*Transactions, error)
+	GetTransactionByID(ctx *context.Context, id uuid.UUID) (*Transactions, error)
 	GetAllTransaction(ctx *context.Context) (*[]Transactions, error)
-	DeleteTransaction(ctx *context.Context, id uint) error
-	UpdateTransaction(ctx *context.Context, id uint, trx *Transactions) error
+	DeleteTransaction(ctx *context.Context, id uuid.UUID) error
+	UpdateTransaction(ctx *context.Context, id uuid.UUID, trx *Transactions) error
 }
 
 type TransactionUsecase interface {

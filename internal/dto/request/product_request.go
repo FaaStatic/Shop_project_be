@@ -3,17 +3,17 @@ package request
 import "mime/multipart"
 
 type SearchProduct struct {
-	ID         uint   `query:"id,omitempty"`
+	ID         string `query:"id,omitempty"`
 	Sku        string `query:"id,omitempty"`
 	NamaProduk string `query:"id,omitempty"`
 }
 
 type GetProduct struct {
-	ID uint `query:"id" validate:"required"`
+	ID string `query:"id" validate:"required"`
 }
 
 type AddProduct struct {
-	UserId          uint    `json:"user_id" validate:"required"`
+	UserId          string  `json:"user_id" validate:"required"`
 	SKU             string  `json:"sku" validate="required"`
 	NamaProduk      string  `json:"nama_produk" validate="required"`
 	Satuan          string  `json:"satuan" validate:"required,oneof=pcs kg liter kardus ikat"`
@@ -24,7 +24,7 @@ type AddProduct struct {
 }
 
 type AddBulkProduct struct {
-	UserId     uint                  `form:"user_id" validate:"required"`
+	UserId     string                `form:"user_id" validate:"required"`
 	NameFile   string                `form:"name_file"`
 	FileUpload *multipart.FileHeader `form:"file_upload"`
 }
@@ -34,7 +34,7 @@ type DeleteProduct struct {
 }
 
 type UpdateProduct struct {
-	ID              uint    `json:"id" validate:"required"`
+	ID              string  `json:"id" validate:"required"`
 	SKU             string  `json:"sku,omitempty"`
 	NamaProduk      string  `json:"nama_produk,omitempty"`
 	Satuan          string  `json:"satuan,omitempty" validate:"omitempty,oneof=pcs kg liter kardus ikat"`
@@ -45,6 +45,7 @@ type UpdateProduct struct {
 }
 
 type GetAllProduct struct {
+	UserId string `json:"user_id" validate:"required"`
 	Page   int    `query:"page"`
 	Limit  int    `query:"limit"`
 	Search string `query:"search"`

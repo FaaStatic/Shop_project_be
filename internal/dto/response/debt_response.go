@@ -8,3 +8,9 @@ type DebtResponseDto struct {
 	DateDebt        *string               `json="date_debt"`
 	TransactionList []TransactionResponse `json="transaction_list"`
 }
+
+type PrintDebtCustomerResponse struct {
+	NameCustomer string `json="name_customer"`
+	DebtId       string `json="debt_id"`
+	UrlPdf       string `json="url_pdf"`
+}
