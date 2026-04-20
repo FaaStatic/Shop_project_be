@@ -1,0 +1,26 @@
+server:
+  port: 
+  name: 
+  env: 
+  host: 
+database:
+  user:
+  pass:
+  port:
+  dbname: 
+  host:
+  sslmode:
+  time_zone:
+redis:
+  url:
+  db:
+  username:
+  password:
+  port:
+  host:
+jwt:
+  secret:
+  token_ttl: 
+  refresh_token_ttl: 
+encrypt:
+  key:

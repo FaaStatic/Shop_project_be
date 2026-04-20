@@ -16,9 +16,9 @@ type ProductTransactionResponse struct {
 type TransactionResponse struct {
 	TransactionID      uint                         `json:"trx_id"`
 	InvoiceNumber      string                       `json:"invoice_number"`
-	PaymentType        string                       `json:"payment_type"`
+	PaymentType        int                          `json:"payment_type"`
 	TotalTransaction   float64                      `json:"total_transaction"`
-	TotalLaba          float64                      `json:"total_laba"`
+	TotalProfit        float64                      `json:"total_profit"`
 	CreatedAt          string                       `json:"created_at"`
 	TransactionDetails []ProductTransactionResponse `json:"transaction_details"`
 }

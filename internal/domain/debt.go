@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/dto/request"
 	"shop_project_be/internal/dto/response"
 	"time"
@@ -10,14 +11,14 @@ import (
 )
 
 type Debts struct {
-	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	CustomerID  uuid.UUID `gorm:"type:uuid;not null" json:"customer_id"`
-	TotalHutang float64   `gorm:"type:decimal(15,2);not null" json:"total_hutang"`
-	SisaHutang  float64   `gorm:"type:decimal(15,2);not null" json:"sisa_hutang"`
-	Status      string    `gorm:"type:enum('belum_lunas','lunas');default:'belum_lunas'" json:"status"`
-	JatuhTempo  time.Time `gorm:"type:date" json:"jatuh_tempo"`
-	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID            uuid.UUID       `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	CustomerID    uuid.UUID       `gorm:"type:uuid;not null" json:"customer_id"`
+	TotalDebt     float64         `gorm:"type:decimal(15,2);not null" json:"total_debt"`
+	RemainingDebt float64         `gorm:"type:decimal(15,2);not null" json:"remaining_debt"`
+	Status        enum.DebtStatus `gorm:"type:smallint;check:status IN (0,1);default:0" json:"status"`
+	DueDate       time.Time       `gorm:"type:date" json:"due_date"`
+	CreatedAt     time.Time       `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time       `gorm:"autoUpdateTime" json:"updated_at"`
 
 	Customer     Customers      `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
 	Transactions []Transactions `gorm:"foreignKey:DebtID" json:"transactions,omitempty"`
@@ -32,6 +33,10 @@ type DebtPayments struct {
 	TanggalBayar time.Time `gorm:"autoCreateTime" json:"tanggal_bayar"`
 
 	User *Users `gorm:"foreignKey:UserID" json:"user,omitempty"`
+}
+
+func (d *DebtPayments) TableName() string {
+	return "debt_payments"
 }
 
 type DebtRepository interface {

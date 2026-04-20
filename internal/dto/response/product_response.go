@@ -3,16 +3,17 @@ package response
 import "time"
 
 type ProductDtoResponse struct {
-	ID              uint    `json:"id"`
-	SKU             string  `json:"sku"`
-	NamaProduk      string  `json:"nama_produk"`
-	Satuan          string  `json:"satuan"`
-	HargaBeli       float64 `json:"harga_beli"`
-	HargaJualTunai  float64 `json:"harga_jual_tunai"`
-	HargaJualHutang float64 `json:"harga_jual_hutang"`
-	Stok            int     `json:"stok"`
-
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               uint      `json:"id"`
+	SKU              string    `json:"sku"`
+	ProductName      string    `json:"product_name"`
+	Unit             int       `json:"unit"`
+	PurchasePrice    float64   `json:"purchase_price"`
+	SellingPrice     float64   `json:"selling_price"`
+	SellingPriceDebt float64   `json:"selling_price_debt"`
+	Stock            int       `json:"stock"`
+	category         string    `json:"category"`
+	Image            string    `json:"image"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type ProductAddBulkResponse struct {

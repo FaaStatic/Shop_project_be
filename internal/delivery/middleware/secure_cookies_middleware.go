@@ -3,18 +3,12 @@ package middleware
 import (
 	"github.com/gofiber/fiber/v3/middleware/csrf"
 	"github.com/gofiber/fiber/v3/middleware/encryptcookie"
-	"github.com/joho/godotenv"
 )
 
-func GetSecureCookiesMiddleware() encryptcookie.Config {
-
-	envData, err := godotenv.Read()
-	if err != nil {
-		panic(err)
-	}
+func GetSecureCookiesMiddleware(env string, encryptKey string) encryptcookie.Config {
 	var key string
-	if envData["APP_ENV"] == "production" && envData["ENCRYPT_KEY"] != "" {
-		key = envData["ENCRYPT_KEY"]
+	if env == "production" && encryptKey != "" {
+		key = encryptKey
 	} else {
 		key = encryptcookie.GenerateKey(16)
 	}

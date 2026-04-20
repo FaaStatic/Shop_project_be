@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/dto/request"
 	"shop_project_be/internal/dto/response"
 	"time"
@@ -11,18 +12,24 @@ import (
 )
 
 type Products struct {
-	ID              uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	SKU             string    `gorm:"type:varchar(50);uniqueIndex" json:"sku"`
-	NamaProduk      string    `gorm:"type:varchar(255);not null" json:"nama_produk"`
-	Satuan          string    `gorm:"type:enum('pcs','kg','liter','kardus','ikat');not null" json:"satuan"`
-	HargaBeli       float64   `gorm:"type:decimal(15,2);not null" json:"harga_beli"`
-	HargaJualTunai  float64   `gorm:"type:decimal(15,2);not null" json:"harga_jual_tunai"`
-	HargaJualHutang float64   `gorm:"type:decimal(15,2);not null" json:"harga_jual_hutang"`
-	Stok            int       `gorm:"type:decimal(10,2);default:0" json:"stok"`
+	ID               uuid.UUID        `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	SKU              string           `gorm:"type:varchar(50);uniqueIndex" json:"sku"`
+	ProductName      string           `gorm:"type:varchar(255);not null" json:"product_name"`
+	Unit             enum.ProductUnit `gorm:"type:smallint;check:unit IN (0,1,2,3,4);not null" json:"unit"`
+	PurchasePrice    float64          `gorm:"type:decimal(15,2);not null" json:"purchase_price"`
+	SellingPrice     float64          `gorm:"type:decimal(15,2);not null" json:"selling_price"`
+	SellingPriceDebt float64          `gorm:"type:decimal(15,2);not null" json:"selling_price_debt"`
+	Stock            int              `gorm:"type:decimal(10,2);default:0" json:"stock"`
+	Category         string           `gorm:"type:varchar(100);index" json:"category"`
+	Image            string           `gorm:"type:text" json:"image"`
 
 	CreatedAt time.Time      `gorm:"created_at"`
 	UpdatedAt time.Time      `gorm:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (p *Products) TableName() string {
+	return "products"
 }
 
 type ProductRepository interface {

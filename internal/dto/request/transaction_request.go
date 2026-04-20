@@ -2,7 +2,7 @@ package request
 
 type AddTransactionRequest struct {
 	NoInvoice        string                        `json:"no_invoice" validate:"required"`
-	TypePayment      string                        `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
+	TypePayment      int                           `json:"type_payment" validate:"required,oneof=0 1 2 3"`
 	TotalTransaction float64                       `json:"total_price" validate:"required,gt=0"`
 	UserId           string                        `json:"user_id" validate:"required"`
 	CustomerId       *string                       `json:"customer_id,omitempty"`
@@ -25,7 +25,7 @@ type FilterTransactionRequest struct {
 	UserId        string `query:"user_id" validate:"required"`
 	DateStart     string `query:"date_start,omitempty"`
 	DateEnd       string `query:"date_end,omitempty"`
-	TypePayment   string `query:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
+	TypePayment   int    `query:"type_payment" validate:"required,oneof=0 1 2 3"`
 	SearchInvoice string `query:"number_invoices",omitempty"`
 }
 
@@ -35,7 +35,7 @@ type DeleteTransactionRequest struct {
 
 type PrintReportTransactionRequest struct {
 	UserId    string `query:"user_id" validate:"required"`
-	TrxId     string `query:"trx_id,,omitempty"`
+	TrxId     string `query:"trx_id,omitempty"`
 	NoInvoice string `query:"number_invoice,omitempty"`
 }
 

@@ -2,9 +2,9 @@ package fiberconfig
 
 import (
 	"crypto/tls"
-	loggerconfig "shop_project_be/pkg/logger"
 	"time"
 
+	envconfig "shop_project_be/internal/config/env_config"
 	middleware "shop_project_be/internal/delivery/middleware"
 
 	"github.com/bytedance/sonic"
@@ -74,9 +74,8 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 	}
 }
 
-func InitFiber(env string) *fiber.App {
-	zapLogger := loggerconfig.LoggerCustom(env)
-	app := fiber.New(GetFiberConfig(zapLogger))
+func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger) *fiber.App {
+	app := fiber.New(GetFiberConfig(logger))
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
 	}))
@@ -90,9 +89,9 @@ func InitFiber(env string) *fiber.App {
 		})
 	})
 	if env == "production" {
-		app.Use(encryptcookie.New(middleware.GetSecureCookiesMiddleware()))
+		app.Use(encryptcookie.New(middleware.GetSecureCookiesMiddleware(env, envData.Encrypt.Key)))
 	}
-	app.Use(middleware.LoggerMiddleware(zapLogger))
+	app.Use(middleware.LoggerMiddleware(logger))
 	app.Use(swagger.New(GetSwaggerConfig("Shop Project")))
 	return app
 }

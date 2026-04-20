@@ -2,3 +2,5 @@
 .env
 go.sum
 logs/
+.config.development.yaml
+.config.yaml

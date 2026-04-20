@@ -9,13 +9,17 @@ import (
 )
 
 type Customers struct {
-	ID     uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	Nama   string    `gorm:"type:varchar(150);not null" json:"nama"`
-	NoHP   string    `gorm:"type:varchar(15)" json:"no_hp"`
-	Alamat string    `gorm:"type:text" json:"alamat"`
+	ID      uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Name    string    `gorm:"type:varchar(150);not null" json:"name"`
+	Phone   string    `gorm:"type:varchar(15)" json:"phone"`
+	Address string    `gorm:"type:text" json:"address"`
 
 	Transactions []Transactions `gorm:"foreignKey:CustomerID" json:"transactions,omitempty"`
 	Debts        []Debts        `gorm:"foreignKey:CustomerID" json:"debts,omitempty"`
+}
+
+func (c *Customers) TableName() string {
+	return "customers"
 }
 
 type CustomerRepository interface {

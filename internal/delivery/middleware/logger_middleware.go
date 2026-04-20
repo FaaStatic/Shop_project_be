@@ -21,7 +21,6 @@ func LoggerMiddleware(log *zap.Logger) fiber.Handler {
 			zap.String("ip", c.IP()),
 			zap.String("user_agent", string(c.Request().Header.UserAgent())),
 		)
-
 		return err
 	}
 

@@ -1,22 +1,35 @@
 package configdb
 
 import (
+	envconfig "shop_project_be/internal/config/env_config"
 	"time"
 
-	"github.com/joho/godotenv"
+	loggerconfig "shop_project_be/pkg/logger"
+
+	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
+	gormlogger "gorm.io/gorm/logger"
+
 	"gorm.io/gorm"
 )
 
-func InitDB() *gorm.DB {
-	envDb, err := godotenv.Read()
-	if err != nil {
-		panic("Failed Load .env file!")
+func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, error) {
+	dsn := "host=" + config.Host + " user=" + config.User + " password=" + config.Password + " dbname=" + config.DBName + " port=" + config.Port + " sslmode=" + config.SSLMode + " TimeZone=" + config.TimeZone
+
+	gormLog := loggerconfig.NewGormZapLogger(log)
+
+	if env == "production" {
+		gormLog = gormLog.LogMode(gormlogger.Error).(*loggerconfig.GormZapLogger)
 	}
-	dsn := "host=" + envDb["DB_HOST"] + " user=" + envDb["DB_USER"] + " password=" + envDb["DB_PASSWORD"] + " dbname=" + envDb["DB_NAME"] + " port=" + envDb["DB_PORT"] + " sslmode=disable TimeZone=Asia/Jakarta"
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger:                 gormlogger.Default.LogMode(gormLog.LogLevel),
+		PrepareStmt:            true,
+		SkipDefaultTransaction: true,
+	})
+
 	if err != nil {
-		panic("Failed Connect to Database!")
+		return nil, err
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -26,6 +39,6 @@ func InitDB() *gorm.DB {
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	return db
+	return db, nil
 
 }

@@ -3,9 +3,9 @@ package request
 import "mime/multipart"
 
 type SearchProduct struct {
-	ID         string `query:"id,omitempty"`
-	Sku        string `query:"id,omitempty"`
-	NamaProduk string `query:"id,omitempty"`
+	ID          string `query:"id,omitempty"`
+	Sku         string `query:"sku,omitempty"`
+	ProductName string `query:"product_name,omitempty"`
 }
 
 type GetProduct struct {
@@ -13,14 +13,16 @@ type GetProduct struct {
 }
 
 type AddProduct struct {
-	UserId          string  `json:"user_id" validate:"required"`
-	SKU             string  `json:"sku" validate="required"`
-	NamaProduk      string  `json:"nama_produk" validate="required"`
-	Satuan          string  `json:"satuan" validate:"required,oneof=pcs kg liter kardus ikat"`
-	HargaBeli       float64 `json:"harga_beli" validate="required"`
-	HargaJualTunai  float64 `json:"harga_jual_tunai" validate="required"`
-	HargaJualHutang float64 `json:"harga_jual_hutang" validate="required"`
-	Stok            int     `json:"stok" validate="required"`
+	UserId           string  `json:"user_id" validate:"required"`
+	SKU              string  `json:"sku" validate="required"`
+	ProductName      string  `json:"product_name" validate="required"`
+	Unit             int     `json:"unit,omitempty" validate:"omitempty,oneof=0 1 2 3 4"`
+	PurchasePrice    float64 `json:"purchase_price" validate="required"`
+	SellingPrice     float64 `json:"selling_price" validate="required"`
+	SellingPriceDebt float64 `json:"selling_price_debt" validate="required"`
+	Stock            int     `json:"stock" validate="required"`
+	Category         string  `json:"category" validate="required"`
+	Image            string  `json:"image,omitempty"`
 }
 
 type AddBulkProduct struct {
@@ -34,14 +36,16 @@ type DeleteProduct struct {
 }
 
 type UpdateProduct struct {
-	ID              string  `json:"id" validate:"required"`
-	SKU             string  `json:"sku,omitempty"`
-	NamaProduk      string  `json:"nama_produk,omitempty"`
-	Satuan          string  `json:"satuan,omitempty" validate:"omitempty,oneof=pcs kg liter kardus ikat"`
-	HargaBeli       float64 `json:"harga_beli,omitempty"`
-	HargaJualTunai  float64 `json:"harga_jual_tunai,omitempty"`
-	HargaJualHutang float64 `json:"harga_jual_hutang,omitempty"`
-	Stok            int     `json:"stok,omitempty"`
+	ID               string   `json:"id" validate:"required"`
+	SKU              *string  `json:"sku,omitempty"`
+	ProductName      *string  `json:"product_name,omitempty"`
+	Unit             *int     `json:"unit,omitempty" validate:"omitempty,oneof=0 1 2 3 4"`
+	PurchasePrice    *float64 `json:"purchase_price,omitempty" validate:"omitempty,gt=0"`
+	SellingPrice     *float64 `json:"selling_price,omitempty" validate:"omitempty,gt=0"`
+	SellingPriceDebt *float64 `json:"selling_price_debt,omitempty" validate:"omitempty,gte=0"`
+	Stock            *int     `json:"stock,omitempty" validate:"omitempty,gte=0"`
+	Category         *string  `json:"category,omitempty"`
+	Image            *string  `json:"image,omitempty"`
 }
 
 type GetAllProduct struct {

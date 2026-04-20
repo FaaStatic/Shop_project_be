@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/dto/request"
 	"time"
 
@@ -9,16 +10,16 @@ import (
 )
 
 type Transactions struct {
-	ID         uint   `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	NoInvoice  string `gorm:"type:varchar(50);uniqueIndex;not null" json:"no_invoice"`
-	UserID     uint   `gorm:"type:uuid;not null" json:"user_id"`
-	CustomerID *uint  `gorm:"column:customer_id" json:"customer_id"`
-	DebtID     *uint  `gorm:"column:debt_id;index" json:"debt_id"`
+	ID         uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	NoInvoice  string     `gorm:"type:varchar(50);uniqueIndex;not null" json:"no_invoice"`
+	UserID     uuid.UUID  `gorm:"type:uuid;not null" json:"user_id"`
+	CustomerID *uuid.UUID `gorm:"column:customer_id" json:"customer_id"`
+	DebtID     *uuid.UUID `gorm:"column:debt_id;index" json:"debt_id"`
 
-	TipePembayaran string    `gorm:"type:enum('tunai','hutang','transfer','qris');not null" json:"tipe_pembayaran"`
-	TotalTransaksi float64   `gorm:"type:decimal(15,2);not null" json:"total_transaksi"`
-	TotalLaba      float64   `gorm:"type:decimal(15,2);not null" json:"total_laba"`
-	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
+	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
+	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
+	TotalProfit      float64           `gorm:"type:decimal(15,2);not null" json:"total_profit"`
+	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 
 	User              Users                `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Customer          Customers            `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
@@ -29,10 +30,20 @@ type TransactionsDetail struct {
 	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	TransactionID uuid.UUID `gorm:"type:uuid;not null" json:"transaction_id"`
 	ProductID     uuid.UUID `gorm:"type:uuid;not null" json:"product_id"`
+	Price         float64   `gorm:"type:decimal(15,2);not null" json:"price"`
+	PriceDebt     float64   `gorm:"type:decimal(15,2);not null" json:"price_debt"`
 	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
 	Subtotal      float64   `gorm:"type:decimal(15,2);not null" json:"subtotal"`
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
+}
+
+func (t *Transactions) TableName() string {
+	return "transactions"
+}
+
+func (td *TransactionsDetail) TableName() string {
+	return "transactions_detail"
 }
 
 type TransactionRepository interface {
