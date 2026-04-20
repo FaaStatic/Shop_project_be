@@ -10,7 +10,7 @@ type DebtResponseDto struct {
 }
 
 type PrintDebtCustomerResponse struct {
-	NameCustomer string `json="name_customer"`
+	CustomerName string `json="customer_name"`
 	DebtId       string `json="debt_id"`
 	UrlPdf       string `json="url_pdf"`
 }

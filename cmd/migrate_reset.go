@@ -36,12 +36,12 @@ var migrateResetCmd = &cobra.Command{
 		sqldb, err := db.DB()
 		if err != nil {
 			log.Fatal("Failed to get sql.DB:", zap.Error(err))
-			panic(fmt.Sprintf("stop! Failed to reset database"))
+			panic("stop! Failed to reset database")
 		}
 		err = sqldb.Close()
 		if err != nil {
 			log.Fatal("Failed to close database connection:", zap.Error(err))
-			panic(fmt.Sprintf("stop! Failed to reset database"))
+			panic("stop! Failed to reset database")
 		}
 
 		configdb.MigrateDB(log)
