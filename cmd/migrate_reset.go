@@ -30,7 +30,7 @@ var migrateResetCmd = &cobra.Command{
 		err = db.Migrator().DropTable(&domain.Users{}, &domain.Customers{}, &domain.Products{}, &domain.Debts{}, &domain.DebtPayments{}, &domain.Transactions{}, &domain.TransactionsDetail{})
 		if err != nil {
 			log.Fatal("Gagal mereset database: %v", zap.Error(err))
-			panic(fmt.Sprintf("stop! Failed to reset database"))
+			panic("stop! Failed to reset database")
 		}
 
 		sqldb, err := db.DB()
