@@ -47,18 +47,18 @@ func (td *TransactionsDetail) TableName() string {
 }
 
 type TransactionRepository interface {
-	CreateTransaction(ctx *context.Context, transaction *Transactions) error
-	GetTransactionByID(ctx *context.Context, id uuid.UUID) (*Transactions, error)
-	GetAllTransaction(ctx *context.Context) (*[]Transactions, error)
-	DeleteTransaction(ctx *context.Context, id uuid.UUID) error
-	UpdateTransaction(ctx *context.Context, id uuid.UUID, trx *Transactions) error
+	CreateTransaction(ctx context.Context, transaction *Transactions) error
+	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
+	GetAllTransaction(ctx context.Context) ([]Transactions, error)
+	DeleteTransaction(ctx context.Context, id uuid.UUID) error
+	UpdateTransaction(ctx context.Context, id uuid.UUID, trx *Transactions) error
 }
 
 type TransactionUsecase interface {
-	AddTransaction(ctx *context.Context, transactionDto *request.AddTransactionDetailRequest) error
-	GetTransaction(ctx *context.Context, transactionDto *request.GetTransactionRequest) (*Transactions, error)
-	GetAllTransaction(ctx *context.Context, transactionDto *request.FilterTransactionRequest) (*[]Transactions, error)
-	DeleteTransaction(ctx *context.Context, transactionDto *request.DeleteTransactionRequest) error
-	PrintReportTransaction(ctx *context.Context, transactionDto *request.PrintReportTransactionRequest) (*Transactions, error)
-	PrintReportMonth(ctx *context.Context, transactionDto *request.PrintReportMonthRequest) (*Transactions, error)
+	AddTransaction(ctx context.Context, dto *request.AddTransactionRequest) error
+	GetTransaction(ctx context.Context, dto *request.GetTransactionRequest) (*Transactions, error)
+	GetAllTransaction(ctx context.Context, dto *request.FilterTransactionRequest) ([]Transactions, error)
+	DeleteTransaction(ctx context.Context, dto *request.DeleteTransactionRequest) error
+	PrintReportTransaction(ctx context.Context, dto *request.PrintReportTransactionRequest) (*Transactions, error)
+	PrintReportMonth(ctx context.Context, dto *request.PrintReportMonthRequest) (*Transactions, error)
 }

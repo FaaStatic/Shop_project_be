@@ -23,16 +23,16 @@ func (c *Customers) TableName() string {
 }
 
 type CustomerRepository interface {
-	GetCustomer(ctx *context.Context) (*[]Customers, error)
-	UpdateCustomer(ctx *context.Context, id uuid.UUID, customer *Customers) error
-	AddCustomer(ctx *context.Context, customer *Customers) error
-	DeleteCustomer(ctx *context.Context, id uuid.UUID) error
+	GetCustomer(ctx context.Context) (*[]Customers, error)
+	UpdateCustomer(ctx context.Context, id uuid.UUID, customer *Customers) error
+	AddCustomer(ctx context.Context, customer *Customers) error
+	DeleteCustomer(ctx context.Context, id uuid.UUID) error
 }
 
 type CustomerUsecase interface {
-	AddCustomerShop(ctx *context.Context, request *request.AddCustomerRequest) error
-	UpdateCustomerShop(ctx *context.Context, request *request.UpdateCustomer) error
-	GetListCustomerShop(ctx *context.Context, request *request.GetAllCustomer) (*[]response.CustomerDtoResponse, error)
-	GetCustomerShop(ctx *context.Context, request *request.GetCustomer) (*response.CustomerDtoResponse, error)
-	DeleteCustomerShop(ctx *context.Context, request *request.DeleteCustomer) error
+	AddCustomerShop(ctx context.Context, request *request.AddCustomerRequest) error
+	UpdateCustomerShop(ctx context.Context, request *request.UpdateCustomer) error
+	GetListCustomerShop(ctx context.Context, request *request.GetAllCustomer) (*[]response.CustomerDtoResponse, error)
+	GetCustomerShop(ctx context.Context, request *request.GetCustomer) (*response.CustomerDtoResponse, error)
+	DeleteCustomerShop(ctx context.Context, request *request.DeleteCustomer) error
 }

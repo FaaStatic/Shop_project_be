@@ -33,16 +33,17 @@ func (p *Products) TableName() string {
 }
 
 type ProductRepository interface {
-	AddProduct(ctx *context.Context, product *Products) error
-	UpdateProduct(ctx *context.Context, product *Products, id uuid.UUID) error
-	DeleteProduct(ctx *context.Context, id uuid.UUID) error
-	GetProdcut(ctx *context.Context) (*[]Products, error)
+	AddProduct(ctx context.Context, product *Products) error
+	UpdateProduct(ctx context.Context, product *Products, id uuid.UUID) error
+	DeleteProduct(ctx context.Context, id uuid.UUID) error
+	GetProdcut(ctx context.Context) (*[]Products, error)
 }
 
 type ProductUsecase interface {
-	AddProductShop(ctx *context.Context, request *request.AddProduct) error
-	AddBulkProductShop(ctx *context.Context, request *request.AddBulkProduct) error
-	DeleteProductShop(ctx *context.Context, request *request.DeleteProduct) error
-	GetAllProductShop(ctx *context.Context, request *request.GetAllProduct) (*[]response.GetProductResponse, error)
-	UpdateProductShop(ctx *context.Context, request *request.UpdateProduct) (*response.GetAllProductResponse, error)
+	AddProductShopWithLock(ctx context.Context, request *request.AddProduct) error
+	AddBulkProductShopWithLock(ctx context.Context, request *request.AddBulkProduct) error
+	DeleteProductShop(ctx context.Context, request *request.DeleteProduct) error
+	GetAllProductShop(ctx context.Context, request *request.GetAllProduct) (*[]response.GetProductResponse, error)
+	UpdateProductShopWithLock(ctx context.Context, request *request.UpdateProduct, delta int) error
+	UpdateStockWithLock(ctx context.Context, request *request.UpdateStock, delta int) error
 }

@@ -40,15 +40,15 @@ func (d *DebtPayments) TableName() string {
 }
 
 type DebtRepository interface {
-	AddDebt(ctx *context.Context, debt *Debts) error
-	DeleteDebt(ctx *context.Context, id uuid.UUID) error
-	GetAllDebt(ctx *context.Context) (*[]Debts, error)
+	AddDebt(ctx context.Context, debt *Debts) error
+	DeleteDebt(ctx context.Context, id uuid.UUID) error
+	GetAllDebt(ctx context.Context) (*[]Debts, error)
 }
 
 type DebtUseCase interface {
-	AddingDebtCustomer(ctx *context.Context, request *request.AddDebtRequest) error
-	DeleteDebtCustomer(ctx *context.Context, request *request.DeleteDebtRequest) error
-	GetAllDebtCustomerList(ctx *context.Context, request *request.FilterDebtRequest) (*[]response.DebtResponseDto, error)
-	GetDebtCustomer(ctx *context.Context, request *request.GetDebtRequest) (*response.DebtResponseDto, error)
-	PrintReportDebtCustomer(ctx *context.Context, request *request.PrintDebtReport) (*response.PrintDebtCustomerResponse, error)
+	AddingDebtCustomer(ctx context.Context, request *request.AddDebtRequest) error
+	DeleteDebtCustomer(ctx context.Context, request *request.DeleteDebtRequest) error
+	GetAllDebtCustomerList(ctx context.Context, request *request.FilterDebtRequest) (*[]response.DebtResponseDto, error)
+	GetDebtCustomer(ctx context.Context, request *request.GetDebtRequest) (*response.DebtResponseDto, error)
+	PrintReportDebtCustomer(ctx context.Context, request *request.PrintDebtReport) (*response.PrintDebtCustomerResponse, error)
 }

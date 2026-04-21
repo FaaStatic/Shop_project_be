@@ -48,6 +48,11 @@ type UpdateProduct struct {
 	Image            *string  `json:"image,omitempty"`
 }
 
+type UpdateStock struct {
+	ID    string `json:"id" validate:"required"`
+	Stock int    `json:"stock,omitempty" validate:"required"`
+}
+
 type GetAllProduct struct {
 	UserId string `json:"user_id" validate:"required"`
 	Page   int    `query:"page"`

@@ -37,11 +37,11 @@ func (u *Users) TableName() string {
 }
 
 type UserRepository interface {
-	GetUserLogin(ctx *context.Context, user *Users) error
-	RegisterUser(ctx *context.Context, user *Users) error
+	GetUserLogin(ctx context.Context, user *Users) error
+	RegisterUser(ctx context.Context, user *Users) error
 }
 
 type UserUsecase interface {
-	UserLogin(ctx *context.Context, userDto *request.UserLoginRequest) error
-	RegisterUser(ctx *context.Context, userDto *request.UserRegisterRequest) error
+	UserLogin(ctx context.Context, userDto *request.UserLoginRequest) error
+	RegisterUser(ctx context.Context, userDto *request.UserRegisterRequest) error
 }
