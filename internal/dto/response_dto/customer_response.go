@@ -1,4 +1,4 @@
-package response
+package responsedto
 
 type CustomerDtoResponse struct {
 	ID     uint              `gorm:"primaryKey" json:"id"`

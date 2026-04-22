@@ -1,4 +1,4 @@
-package response
+package responsedto
 
 type AddTransactionResponse struct {
 	Message string `json:"message"`

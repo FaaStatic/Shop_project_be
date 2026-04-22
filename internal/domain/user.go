@@ -3,7 +3,8 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/dto/request"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -37,11 +38,11 @@ func (u *Users) TableName() string {
 }
 
 type UserRepository interface {
-	GetUserLogin(ctx context.Context, user *Users) error
+	GetUserLogin(ctx context.Context, uuid uuid.UUID) (*Users, error)
 	RegisterUser(ctx context.Context, user *Users) error
 }
 
 type UserUsecase interface {
-	UserLogin(ctx context.Context, userDto *request.UserLoginRequest) error
-	RegisterUser(ctx context.Context, userDto *request.UserRegisterRequest) error
+	UserLogin(ctx context.Context, userDto *requestdto.UserLoginRequest) (*responsedto.UserLoginResponse, error)
+	RegisterUser(ctx context.Context, userDto *requestdto.UserRegisterRequest) (*responsedto.UserRegisterResponse, error)
 }

@@ -1,8 +1,8 @@
-package configdb
+package database
 
 import (
 	"fmt"
-	envconfig "shop_project_be/internal/config/env_config"
+	envconfig "shop_project_be/config/env_config"
 	"shop_project_be/internal/domain"
 
 	"go.uber.org/zap"
@@ -42,6 +42,8 @@ func MigrateDB(log *zap.Logger) error {
 	if err := db.AutoMigrate(entities...); err != nil {
 		return fmt.Errorf("gagal migrate: %w", err)
 	}
+
+	log.Info("Migration Successfully", zap.Int("total_tabel", len(entities)))
 
 	log.Info("migrasi berhasil",
 		zap.Int("total_tabel", len(entities)),

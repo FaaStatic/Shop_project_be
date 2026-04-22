@@ -1,4 +1,4 @@
-package request
+package requestdto
 
 import "mime/multipart"
 

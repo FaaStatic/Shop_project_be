@@ -1,4 +1,4 @@
-package response
+package responsedto
 
 type DebtResponseDto struct {
 	NameCustomer    string                `json="name_customer"`

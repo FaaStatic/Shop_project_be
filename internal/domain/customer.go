@@ -2,8 +2,8 @@ package domain
 
 import (
 	"context"
-	"shop_project_be/internal/dto/request"
-	"shop_project_be/internal/dto/response"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 
 	"github.com/google/uuid"
 )
@@ -30,9 +30,9 @@ type CustomerRepository interface {
 }
 
 type CustomerUsecase interface {
-	AddCustomerShop(ctx context.Context, request *request.AddCustomerRequest) error
-	UpdateCustomerShop(ctx context.Context, request *request.UpdateCustomer) error
-	GetListCustomerShop(ctx context.Context, request *request.GetAllCustomer) (*[]response.CustomerDtoResponse, error)
-	GetCustomerShop(ctx context.Context, request *request.GetCustomer) (*response.CustomerDtoResponse, error)
-	DeleteCustomerShop(ctx context.Context, request *request.DeleteCustomer) error
+	AddCustomerShop(ctx context.Context, request *requestdto.AddCustomer) error
+	UpdateCustomerShop(ctx context.Context, request *requestdto.UpdateCustomer) error
+	GetListCustomerShop(ctx context.Context, request *requestdto.GetAllCustomer) (*[]responsedto.CustomerDtoResponse, error)
+	GetCustomerShop(ctx context.Context, request *requestdto.GetCustomer) (*responsedto.CustomerDtoResponse, error)
+	DeleteCustomerShop(ctx context.Context, request *requestdto.DeleteCustomer) error
 }

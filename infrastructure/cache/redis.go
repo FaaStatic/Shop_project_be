@@ -3,7 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
-	envconfig "shop_project_be/internal/config/env_config"
+	envconfig "shop_project_be/config/env_config"
 
 	"github.com/redis/go-redis/v9"
 )

@@ -70,9 +70,9 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 	}()
 	env := os.Getenv("APP_ENV")
 	if env == "development" {
-		viper.SetConfigName(".config.development")
+		viper.SetConfigName("/internal/config/.config.development")
 	} else {
-		viper.SetConfigName(".config")
+		viper.SetConfigName("/internal/config/.config.production")
 	}
 
 	viper.SetConfigType("yaml")

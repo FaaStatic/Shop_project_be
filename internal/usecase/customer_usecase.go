@@ -3,8 +3,8 @@ package usecase
 import (
 	"context"
 	"shop_project_be/internal/domain"
-	"shop_project_be/internal/dto/request"
-	"shop_project_be/internal/dto/response"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 
 	"go.uber.org/zap"
 )
@@ -22,26 +22,26 @@ func NewCustomerUsecase(customerRepo domain.CustomerRepository, log *zap.Logger)
 }
 
 // AddCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) AddCustomerShop(ctx context.Context, request *request.AddCustomerRequest) error {
+func (c *customerUsecase) AddCustomerShop(ctx context.Context, request *requestdto.AddCustomer) error {
 	panic("unimplemented")
 }
 
 // DeleteCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) DeleteCustomerShop(ctx context.Context, request *request.DeleteCustomer) error {
+func (c *customerUsecase) DeleteCustomerShop(ctx context.Context, request *requestdto.DeleteCustomer) error {
 	panic("unimplemented")
 }
 
 // GetCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) GetCustomerShop(ctx context.Context, request *request.GetCustomer) (*response.CustomerDtoResponse, error) {
+func (c *customerUsecase) GetCustomerShop(ctx context.Context, request *requestdto.GetCustomer) (*responsedto.CustomerDtoResponse, error) {
 	panic("unimplemented")
 }
 
 // GetListCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *request.GetAllCustomer) (*[]response.CustomerDtoResponse, error) {
+func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requestdto.GetAllCustomer) (*[]responsedto.CustomerDtoResponse, error) {
 	panic("unimplemented")
 }
 
 // UpdateCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) UpdateCustomerShop(ctx context.Context, request *request.UpdateCustomer) error {
+func (c *customerUsecase) UpdateCustomerShop(ctx context.Context, request *requestdto.UpdateCustomer) error {
 	panic("unimplemented")
 }

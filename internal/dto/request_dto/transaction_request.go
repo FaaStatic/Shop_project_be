@@ -1,4 +1,4 @@
-package request
+package requestdto
 
 type AddTransactionRequest struct {
 	NoInvoice        string                        `json:"no_invoice" validate:"required"`

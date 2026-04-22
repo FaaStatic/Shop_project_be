@@ -3,8 +3,8 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/dto/request"
-	"shop_project_be/internal/dto/response"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,10 +40,10 @@ type ProductRepository interface {
 }
 
 type ProductUsecase interface {
-	AddProductShopWithLock(ctx context.Context, request *request.AddProduct) error
-	AddBulkProductShopWithLock(ctx context.Context, request *request.AddBulkProduct) error
-	DeleteProductShop(ctx context.Context, request *request.DeleteProduct) error
-	GetAllProductShop(ctx context.Context, request *request.GetAllProduct) (*[]response.GetProductResponse, error)
-	UpdateProductShopWithLock(ctx context.Context, request *request.UpdateProduct, delta int) error
-	UpdateStockWithLock(ctx context.Context, request *request.UpdateStock, delta int) error
+	AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error
+	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error
+	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
+	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error)
+	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error
+	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error
 }

@@ -1,10 +1,9 @@
-package configdb
+package database
 
 import (
-	envconfig "shop_project_be/internal/config/env_config"
+	envconfig "shop_project_be/config/env_config"
+	zaplogger "shop_project_be/infrastructure/logger"
 	"time"
-
-	loggerconfig "shop_project_be/pkg/logger"
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
@@ -16,10 +15,10 @@ import (
 func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, error) {
 	dsn := "host=" + config.Host + " user=" + config.User + " password=" + config.Password + " dbname=" + config.DBName + " port=" + config.Port + " sslmode=" + config.SSLMode + " TimeZone=" + config.TimeZone
 
-	gormLog := loggerconfig.NewGormZapLogger(log)
+	gormLog := zaplogger.NewGormZapLogger(log)
 
 	if env == "production" {
-		gormLog = gormLog.LogMode(gormlogger.Error).(*loggerconfig.GormZapLogger)
+		gormLog = gormLog.LogMode(gormlogger.Error).(*zaplogger.GormZapLogger)
 	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
@@ -38,6 +37,7 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
+	log.Info("Database PostgreSQL Connected", zap.String("host", config.Host))
 
 	return db, nil
 

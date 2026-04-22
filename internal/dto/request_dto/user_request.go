@@ -1,4 +1,4 @@
-package request
+package requestdto
 
 type UserLoginRequest struct {
 	Username string `json:"username" validate:"required,min=3,max=100"`

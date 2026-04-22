@@ -1,6 +1,6 @@
-package request
+package requestdto
 
-type AddCustomerRequest struct {
+type AddCustomer struct {
 	UserId       string `json:"user_id" validate="required"`
 	CustomerName string `json:"customer_name" validate="required"`
 	PhoneNumber  string `json:"phone_number,omitempty"`

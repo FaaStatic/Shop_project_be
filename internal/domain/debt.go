@@ -3,8 +3,8 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/dto/request"
-	"shop_project_be/internal/dto/response"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,9 +46,9 @@ type DebtRepository interface {
 }
 
 type DebtUseCase interface {
-	AddingDebtCustomer(ctx context.Context, request *request.AddDebtRequest) error
-	DeleteDebtCustomer(ctx context.Context, request *request.DeleteDebtRequest) error
-	GetAllDebtCustomerList(ctx context.Context, request *request.FilterDebtRequest) (*[]response.DebtResponseDto, error)
-	GetDebtCustomer(ctx context.Context, request *request.GetDebtRequest) (*response.DebtResponseDto, error)
-	PrintReportDebtCustomer(ctx context.Context, request *request.PrintDebtReport) (*response.PrintDebtCustomerResponse, error)
+	AddingDebtCustomer(ctx context.Context, request *requestdto.AddDebtRequest) error
+	DeleteDebtCustomer(ctx context.Context, request *requestdto.DeleteDebtRequest) error
+	GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*[]responsedto.DebtResponseDto, error)
+	GetDebtCustomer(ctx context.Context, request *requestdto.GetDebtRequest) (*responsedto.DebtResponseDto, error)
+	PrintReportDebtCustomer(ctx context.Context, request *requestdto.PrintDebtReport) (*responsedto.PrintDebtCustomerResponse, error)
 }

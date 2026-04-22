@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"time"
 
-	envconfig "shop_project_be/internal/config/env_config"
-	middleware "shop_project_be/internal/delivery/middleware"
+	envconfig "shop_project_be/config/env_config"
+	middleware "shop_project_be/internal/delivery/http/middleware"
 
 	"github.com/bytedance/sonic"
 	swagger "github.com/gofiber/contrib/v3/swaggerui"

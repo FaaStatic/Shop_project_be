@@ -1,4 +1,4 @@
-package request
+package requestdto
 
 type DebtPayment struct {
 	DebtID       string  `json:"debt_id" validate:"required"`

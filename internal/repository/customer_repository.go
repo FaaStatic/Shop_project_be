@@ -12,6 +12,10 @@ type customerRepository struct {
 	db *gorm.DB
 }
 
+func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
+	return &customerRepository{db: db}
+}
+
 // AddCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) AddCustomer(ctx context.Context, customer *domain.Customers) error {
 	panic("unimplemented")
@@ -30,8 +34,4 @@ func (c *customerRepository) GetCustomer(ctx context.Context) (*[]domain.Custome
 // UpdateCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) UpdateCustomer(ctx context.Context, id uuid.UUID, customer *domain.Customers) error {
 	panic("unimplemented")
-}
-
-func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
-	return &customerRepository{db: db}
 }

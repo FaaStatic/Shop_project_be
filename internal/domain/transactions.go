@@ -3,7 +3,8 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/dto/request"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,10 +56,10 @@ type TransactionRepository interface {
 }
 
 type TransactionUsecase interface {
-	AddTransaction(ctx context.Context, dto *request.AddTransactionRequest) error
-	GetTransaction(ctx context.Context, dto *request.GetTransactionRequest) (*Transactions, error)
-	GetAllTransaction(ctx context.Context, dto *request.FilterTransactionRequest) ([]Transactions, error)
-	DeleteTransaction(ctx context.Context, dto *request.DeleteTransactionRequest) error
-	PrintReportTransaction(ctx context.Context, dto *request.PrintReportTransactionRequest) (*Transactions, error)
-	PrintReportMonth(ctx context.Context, dto *request.PrintReportMonthRequest) (*Transactions, error)
+	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
+	GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error)
+	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*[]responsedto.TransactionResponse, error)
+	DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error
+	PrintReportTransaction(ctx context.Context, dto *requestdto.PrintReportTransactionRequest) (*responsedto.PrintReportTransactionResponse, error)
+	PrintReportMonth(ctx context.Context, dto *requestdto.PrintReportMonthRequest) (*responsedto.PrintReportMonthTransactionResponse, error)
 }

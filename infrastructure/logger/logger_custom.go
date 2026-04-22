@@ -20,25 +20,25 @@ type GormZapLogger struct {
 	IgnoreRecordNotFoundError bool
 }
 
-func LoggerCustom(env string) *zap.Logger {
+var Logger *zap.Logger
+
+func LoggerCustom(env string) {
 
 	var (
-		logger *zap.Logger
-		err    error
+		err error
 	)
 
 	if env == "production" {
-		logger, err = zap.NewProduction()
+		Logger, err = zap.NewProduction()
 		if err != nil {
 			panic("Failed to initialize logger!")
 		}
 	} else {
-		logger, err = zap.NewDevelopment()
+		Logger, err = zap.NewDevelopment()
 		if err != nil {
 			panic("Failed to initialize logger!")
 		}
 	}
-	return logger
 }
 
 func ProductionLog() (*zap.Logger, error) {

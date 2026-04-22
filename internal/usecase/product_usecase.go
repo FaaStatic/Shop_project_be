@@ -3,8 +3,8 @@ package usecase
 import (
 	"context"
 	"shop_project_be/internal/domain"
-	"shop_project_be/internal/dto/request"
-	"shop_project_be/internal/dto/response"
+	requestdto "shop_project_be/internal/dto/request_dto"
+	responsedto "shop_project_be/internal/dto/response_dto"
 
 	"go.uber.org/zap"
 )
@@ -22,31 +22,31 @@ func NewProductUsecase(productRepo domain.ProductRepository, log *zap.Logger) do
 }
 
 // AddBulkProductShopWithLock implements [domain.ProductUsecase].
-func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request *request.AddBulkProduct) error {
+func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error {
 	panic("unimplemented")
 }
 
 // AddProductShopWithLock implements [domain.ProductUsecase].
-func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *request.AddProduct) error {
+func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error {
 	panic("unimplemented")
 }
 
 // DeleteProductShop implements [domain.ProductUsecase].
-func (p *productUsecase) DeleteProductShop(ctx context.Context, request *request.DeleteProduct) error {
+func (p *productUsecase) DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error {
 	panic("unimplemented")
 }
 
 // GetAllProductShop implements [domain.ProductUsecase].
-func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request.GetAllProduct) (*[]response.GetProductResponse, error) {
+func (p *productUsecase) GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error) {
 	panic("unimplemented")
 }
 
 // UpdateProductShopWithLock implements [domain.ProductUsecase].
-func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request *request.UpdateProduct, delta int) error {
+func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error {
 	panic("unimplemented")
 }
 
 // UpdateStockWithLock implements [domain.ProductUsecase].
-func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *request.UpdateStock, delta int) error {
+func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error {
 	panic("unimplemented")
 }
