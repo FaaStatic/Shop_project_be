@@ -32,12 +32,24 @@ func (m *JWTMiddleware) Auth(log *zap.Logger) fiber.Handler {
 		claims, err := m.jwtService.ValidateToken(token)
 		if err != nil {
 			zaplogger.Logger.Debug("token not valid", zap.Error(err))
-			return response.Error(c, fiber.StatusUnauthorized, "token tidak valid atau expired", err)
+			return response.Error(c, fiber.StatusUnauthorized, "token not valid or expired", err)
 		}
 		if claims.Type != "access" {
-			return response.Error(c, fiber.StatusUnauthorized, "not access token", nil)
+			return response.Error(c, fiber.StatusUnauthorized, "have not access token", nil)
 		}
 
+		ctx := c.Context()
+		sessionKey := "session:" + token
+		exists, err := m.sessionRepo.Exists(ctx, sessionKey)
+		if err != nil || !exists {
+			return response.Error(c, fiber.StatusUnauthorized, "Session not valid user please login first!", nil)
+		}
+		c.Locals("user_id", claims.UserID)
+		c.Locals("email", claims.Email)
+		c.Locals("role", claims.Role)
+		c.Locals("access_token", token)
+
+		return c.Next()
 	}
 }
 

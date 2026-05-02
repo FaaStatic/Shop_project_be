@@ -22,9 +22,9 @@ type ProductAddBulkResponse struct {
 }
 
 type GetProductResponse struct {
-	UserId   uint               `json:"user_id"`
-	NameUser uint               `json:"name_user"`
-	Product  ProductDtoResponse `json:"product"`
+	UserId   uint                 `json:"user_id"`
+	NameUser uint                 `json:"name_user"`
+	Product  []ProductDtoResponse `json:"product"`
 }
 
 type GetAllProductResponse struct {

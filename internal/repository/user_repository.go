@@ -35,5 +35,9 @@ func (u *userRepository) GetUserLogin(ctx context.Context, uuuid uuid.UUID) (*do
 
 // RegisterUser implements [domain.UserRepository].
 func (u *userRepository) RegisterUser(ctx context.Context, user *domain.Users) error {
-	panic("unimplemented")
+	result := u.db.WithContext(ctx).Create(user)
+	if result.Error != nil {
+		return fmt.Errorf("Failed create user: %w", result.Error)
+	}
+	return nil
 }

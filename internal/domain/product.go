@@ -32,17 +32,29 @@ func (p *Products) TableName() string {
 	return "products"
 }
 
+type FilterAllProduct struct {
+	Search   string
+	LastId   *uuid.UUID
+	HasNext  bool
+	Limit    int
+	Page     int
+	Category string
+	Order    string
+}
+
 type ProductRepository interface {
 	AddProduct(ctx context.Context, product *Products) error
 	UpdateProduct(ctx context.Context, product *Products, id uuid.UUID) error
 	DeleteProduct(ctx context.Context, id uuid.UUID) error
-	GetProdcut(ctx context.Context) (*[]Products, error)
+	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
+	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*[]Products, error)
 }
 
 type ProductUsecase interface {
 	AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error
 	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error
 	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
+	GetProductShop(ctx context.Context, request *requestdto.GetProduct) error
 	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error)
 	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error
 	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error

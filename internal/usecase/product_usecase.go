@@ -21,6 +21,11 @@ func NewProductUsecase(productRepo domain.ProductRepository, log *zap.Logger) do
 	}
 }
 
+// GetProductShop implements [domain.ProductUsecase].
+func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto.GetProduct) error {
+	panic("unimplemented")
+}
+
 // AddBulkProductShopWithLock implements [domain.ProductUsecase].
 func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error {
 	panic("unimplemented")
