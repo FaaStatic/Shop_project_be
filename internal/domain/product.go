@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
+	"shop_project_be/internal/constant/paginated"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
@@ -32,9 +33,16 @@ func (p *Products) TableName() string {
 	return "products"
 }
 
+type BulkInsertResult struct {
+	TotalInserted int
+	TotalSkipped  int
+	SkippedSKUs   []string
+}
+
 type FilterAllProduct struct {
 	Search   string
 	LastId   *uuid.UUID
+	Cursor   *paginated.CursorMeta
 	HasNext  bool
 	Limit    int
 	Page     int
@@ -42,12 +50,19 @@ type FilterAllProduct struct {
 	Order    string
 }
 
+type PaginatedItem struct {
+	DataItem []*Products
+	HasNext  bool
+	Cursor   *paginated.CursorMeta
+}
+
 type ProductRepository interface {
 	AddProduct(ctx context.Context, product *Products) error
 	UpdateProduct(ctx context.Context, product *Products, id uuid.UUID) error
+	AddBulkProduct(ctx context.Context, products []*Products) (*BulkInsertResult, error)
 	DeleteProduct(ctx context.Context, id uuid.UUID) error
 	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
-	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*[]Products, error)
+	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
 }
 
 type ProductUsecase interface {

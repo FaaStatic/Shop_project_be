@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
+	"shop_project_be/internal/constant/paginated"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
@@ -47,10 +48,23 @@ func (td *TransactionsDetail) TableName() string {
 	return "transactions_detail"
 }
 
+type FilterTransaction struct {
+	NoInvoices string
+	Cursor     *paginated.CursorMeta
+	Limit      int
+	Order      string
+}
+
+type ResultTransaction struct {
+	DataItem []*Transactions
+	HasNext  bool
+	Cursor   *paginated.CursorMeta
+}
+
 type TransactionRepository interface {
 	CreateTransaction(ctx context.Context, transaction *Transactions) error
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
-	GetAllTransaction(ctx context.Context) ([]Transactions, error)
+	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
 	UpdateTransaction(ctx context.Context, id uuid.UUID, trx *Transactions) error
 }
