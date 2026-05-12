@@ -60,6 +60,7 @@ type ProductRepository interface {
 	DeleteProduct(ctx context.Context, id uuid.UUID) error
 	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
 	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
+	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error
 }
 
 type ProductUsecase interface {

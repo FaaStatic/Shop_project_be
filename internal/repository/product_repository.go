@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type productRepository struct {
@@ -182,4 +183,34 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 		return fmt.Errorf("failed to update product: %w", result.Error)
 	}
 	return nil
+}
+
+// UpdateStockWithLock implements [domain.ProductRepository].
+func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error {
+	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var product domain.Products
+		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&product)
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("product with id %s not found", id)
+			}
+			return fmt.Errorf("failed to find product for update: %w", result.Error)
+		}
+
+		newStock := product.Stock + delta
+
+		if newStock < 0 {
+			return fmt.Errorf("insufficient stock for product %s (current: %d, requested change: %d)", id, product.Stock, delta)
+		}
+
+		updateResult := tx.Model(&domain.Products{}).
+			Where("id = ?", id).
+			Update("stock", newStock)
+
+		if updateResult.Error != nil {
+			return fmt.Errorf("failed to update product stock: %w", updateResult.Error)
+		}
+
+		return nil
+	})
 }
