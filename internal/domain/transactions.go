@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type Transactions struct {
@@ -22,6 +23,8 @@ type Transactions struct {
 	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
 	TotalProfit      float64           `gorm:"type:decimal(15,2);not null" json:"total_profit"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt        gorm.DeletedAt    `gorm:"index" json:"-"`
 
 	User              Users                `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Customer          Customers            `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`

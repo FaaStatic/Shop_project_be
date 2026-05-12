@@ -4,15 +4,20 @@ import (
 	"context"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
+	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type Customers struct {
-	ID      uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	Name    string    `gorm:"type:varchar(150);not null" json:"name"`
-	Phone   string    `gorm:"type:varchar(15)" json:"phone"`
-	Address string    `gorm:"type:text" json:"address"`
+	ID        uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Name      string         `gorm:"type:varchar(150);not null" json:"name"`
+	Phone     string         `gorm:"type:varchar(15)" json:"phone"`
+	Address   string         `gorm:"type:text" json:"address"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
 	Transactions []Transactions `gorm:"foreignKey:CustomerID" json:"transactions,omitempty"`
 	Debts        []Debts        `gorm:"foreignKey:CustomerID" json:"debts,omitempty"`

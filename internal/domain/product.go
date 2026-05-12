@@ -24,8 +24,8 @@ type Products struct {
 	Category         string           `gorm:"type:varchar(100);index" json:"category"`
 	Image            string           `gorm:"type:text" json:"image"`
 
-	CreatedAt time.Time      `gorm:"created_at"`
-	UpdatedAt time.Time      `gorm:"updated_at"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
@@ -41,11 +41,8 @@ type BulkInsertResult struct {
 
 type FilterAllProduct struct {
 	Search   string
-	LastId   *uuid.UUID
 	Cursor   *paginated.CursorMeta
-	HasNext  bool
 	Limit    int
-	Page     int
 	Category string
 	Order    string
 }
