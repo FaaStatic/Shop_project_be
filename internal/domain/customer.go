@@ -23,7 +23,7 @@ func (c *Customers) TableName() string {
 }
 
 type CustomerRepository interface {
-	GetCustomer(ctx context.Context) (*[]Customers, error)
+	GetCustomer(ctx context.Context, id uuid.UUID) (*[]Customers, error)
 	UpdateCustomer(ctx context.Context, id uuid.UUID, customer *Customers) error
 	AddCustomer(ctx context.Context, customer *Customers) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error

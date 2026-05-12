@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"shop_project_be/internal/constant/enum"
+	"shop_project_be/internal/constant/paginated"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"time"
@@ -39,10 +40,27 @@ func (d *DebtPayments) TableName() string {
 	return "debt_payments"
 }
 
+type DebtsPaginated struct {
+	Data    []*Debts              `json:"data"`
+	HasNext bool                  `json:"has_next"`
+	Cursor  *paginated.CursorMeta `json:"cursor,omitempty"`
+}
+
+type FilterDebt struct {
+	Cursor     *paginated.CursorMeta `json:"cursor,omitempty"`
+	Limit      int                   `json:"limit"`
+	CustomerID uuid.UUID             `json:"customer_id"`
+	Order      string                `json:"order"`
+	Status     enum.DebtStatus       `json:"status"`
+	Search     string                `json:"search"`
+}
+
 type DebtRepository interface {
 	AddDebt(ctx context.Context, debt *Debts) error
 	DeleteDebt(ctx context.Context, id uuid.UUID) error
-	GetAllDebt(ctx context.Context) (*[]Debts, error)
+	GetAllDebt(ctx context.Context, filter FilterDebt) (*DebtsPaginated, error)
+	UpdateDebt(ctx context.Context, id uuid.UUID, debt *Debts) error
+	GetDebtByID(ctx context.Context, id uuid.UUID) (*Debts, error)
 }
 
 type DebtUseCase interface {

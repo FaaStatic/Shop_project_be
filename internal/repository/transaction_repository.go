@@ -54,7 +54,7 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 
 	query := t.db.Preload("User").
 		Preload("Customer").
-		Preload("TransactionDetail").WithContext(ctx).Model(&domain.Transactions{})
+		Preload("TransactionDetail").Preload("TransactionDetail.Product").WithContext(ctx).Model(&domain.Transactions{})
 
 	if filter.Cursor != nil {
 		if order == "ASC" {
@@ -102,7 +102,7 @@ func (t *transactionRepository) GetTransactionByID(ctx context.Context, id uuid.
 	var item domain.Transactions
 	result := t.db.WithContext(ctx).Preload("User").
 		Preload("Customer").
-		Preload("TransactionDetail").Where("id = ?", id).First(&item)
+		Preload("TransactionDetail").Preload("TransactionDetail.Product").Where("id = ?", id).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("product with id %s not found: %w", id, result.Error)
