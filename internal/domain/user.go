@@ -43,8 +43,10 @@ func (u *Users) TableName() string {
 }
 
 type UserRepository interface {
-	GetUserLogin(ctx context.Context, uuid uuid.UUID) (*Users, error)
+	GetUserLogin(ctx context.Context, id uuid.UUID) (*Users, error)
 	RegisterUser(ctx context.Context, user *Users) error
+	GetUserByUsername(ctx context.Context, username string) (*Users, error)
+	GetUserById(ctx context.Context, id uuid.UUID) (*Users, error)
 }
 
 type UserUsecase interface {

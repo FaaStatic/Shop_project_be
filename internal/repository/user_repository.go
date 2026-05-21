@@ -18,10 +18,38 @@ func NewUserRepository(db *gorm.DB) domain.UserRepository {
 	return &userRepository{db: db}
 }
 
-// GetUserLogin implements [domain.UserRepository].
-func (u *userRepository) GetUserLogin(ctx context.Context, uuuid uuid.UUID) (*domain.Users, error) {
+// GetUserById implements [domain.UserRepository].
+func (u *userRepository) GetUserById(ctx context.Context, id uuid.UUID) (*domain.Users, error) {
 	var userData domain.Users
-	result := u.db.WithContext(ctx).Where("id = ?", uuuid).First(&userData)
+	result := u.db.WithContext(ctx).Where("id = ?", id).First(&userData)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("user not found: %w", result.Error)
+		}
+		return nil, fmt.Errorf("failed to get user: %w", result.Error)
+	}
+	return &userData, nil
+}
+
+// GetUserByUsername implements [domain.UserRepository].
+func (u *userRepository) GetUserByUsername(ctx context.Context, username string) (*domain.Users, error) {
+	var userData domain.Users
+	result := u.db.WithContext(ctx).Where("username = ?", username).First(&userData)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("user not found")
+	}
+
+	return &userData, nil
+}
+
+// GetUserLogin implements [domain.UserRepository].
+func (u *userRepository) GetUserLogin(ctx context.Context, id uuid.UUID) (*domain.Users, error) {
+	var userData domain.Users
+	result := u.db.WithContext(ctx).Where("id = ?", id).First(&userData)
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {

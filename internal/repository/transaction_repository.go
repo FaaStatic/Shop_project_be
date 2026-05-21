@@ -20,9 +20,22 @@ func NewTransactionRepository(db *gorm.DB) domain.TransactionRepository {
 	return &transactionRepository{db: db}
 }
 
+// CheckTransactionByNoInvoice implements [domain.TransactionRepository].
+func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context, noInvoice string) (*domain.Transactions, error) {
+	var item *domain.Transactions
+	result := t.db.WithContext(ctx).Where("no_invoice = ?", noInvoice).First(&item)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get transaction: %w", result.Error)
+	}
+	return item, nil
+}
+
 // CreateTransaction implements [domain.TransactionRepository].
 func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions) error {
-	result := t.db.WithContext(ctx).Create(transaction)
+	result := t.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction)
 	if result.Error != nil {
 		return fmt.Errorf("failed to add transaction: %w", result.Error)
 	}

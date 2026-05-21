@@ -1,7 +1,7 @@
 package responsedto
 
 type UserLoginResponse struct {
-	ID           uint   `json:"id"`
+	ID           string `json:"id"`
 	Username     string `json:"username"`
 	Role         string `json:"role"`
 	Token        string `json:"token,omitempty"`

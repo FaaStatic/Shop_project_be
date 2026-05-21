@@ -21,7 +21,6 @@ type Transactions struct {
 
 	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
 	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
-	TotalProfit      float64           `gorm:"type:decimal(15,2);not null" json:"total_profit"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt        gorm.DeletedAt    `gorm:"index" json:"-"`
@@ -70,6 +69,7 @@ type TransactionRepository interface {
 	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
 	UpdateTransaction(ctx context.Context, id uuid.UUID, trx *Transactions) error
+	CheckTransactionByNoInvoice(ctx context.Context, noInvoice string) (*Transactions, error)
 }
 
 type TransactionUsecase interface {

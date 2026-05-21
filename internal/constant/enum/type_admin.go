@@ -1,5 +1,10 @@
 package enum
 
+import (
+	"errors"
+	"strings"
+)
+
 type UserRole int
 
 const (
@@ -18,5 +23,18 @@ func (typeUser UserRole) String() string {
 		return "staff"
 	default:
 		return "unknown"
+	}
+}
+
+func ParseUserRole(roleStr string) (UserRole, error) {
+	switch strings.ToLower(roleStr) {
+	case "superadmin":
+		return superadmin, nil
+	case "admin":
+		return admin, nil
+	case "staff":
+		return staff, nil
+	default:
+		return 0, errors.New("role not valid")
 	}
 }

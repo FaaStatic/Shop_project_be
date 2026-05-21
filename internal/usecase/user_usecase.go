@@ -2,31 +2,136 @@ package usecase
 
 import (
 	"context"
+	"fmt"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
+	"shop_project_be/pkg/jwt"
+	"time"
 
 	"go.uber.org/zap"
 )
 
 type userUsecase struct {
-	userRepo domain.UserRepository
-	log      *zap.Logger
+	userRepo    domain.UserRepository
+	sessionRepo domain.SessionRepository
+	log         *zap.Logger
+	jwtService  *jwt.JWTService
 }
 
-func NewUserUsecase(userRepo domain.UserRepository, log *zap.Logger) domain.UserUsecase {
+func NewUserUsecase(userRepo domain.UserRepository, sessionRepo domain.SessionRepository, log *zap.Logger, jwtService *jwt.JWTService) domain.UserUsecase {
 	return &userUsecase{
-		userRepo: userRepo,
-		log:      log,
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		log:         log,
+		jwtService:  jwtService,
 	}
 }
 
 // RegisterUser implements [domain.UserUsecase].
 func (u *userUsecase) RegisterUser(ctx context.Context, userDto *requestdto.UserRegisterRequest) (*responsedto.UserRegisterResponse, error) {
-	panic("unimplemented")
+	existing, err := u.userRepo.GetUserByUsername(ctx, userDto.Username)
+	if err != nil {
+		u.log.Error("user already exists", zap.Error(err))
+		return &responsedto.UserRegisterResponse{
+			Message: "internal server error",
+			Status:  500,
+		}, fmt.Errorf("internal server error")
+	}
+	if existing != nil {
+		u.log.Error("user already exists", zap.Error(err))
+
+		return &responsedto.UserRegisterResponse{
+			Message: "user already exists",
+			Status:  409,
+		}, fmt.Errorf("user already exists")
+	}
+
+	roleEnum, err := enum.ParseUserRole(userDto.Role)
+	if err != nil {
+		u.log.Error("Error Parsing Role", zap.Error(err))
+		return &responsedto.UserRegisterResponse{
+			Message: "role invalid",
+			Status:  400,
+		}, fmt.Errorf("role invalid")
+	}
+
+	user := &domain.Users{
+		Username: userDto.Username,
+		Password: userDto.Password,
+		Role:     roleEnum,
+	}
+	err = user.HashPswd()
+	if err != nil {
+		u.log.Error("Error Hashing Password", zap.Error(err))
+		return &responsedto.UserRegisterResponse{
+			Message: "internal server error",
+			Status:  500,
+		}, fmt.Errorf("internal server error")
+	}
+	err = u.userRepo.RegisterUser(ctx, user)
+	if err != nil {
+		return &responsedto.UserRegisterResponse{
+			Message: "register Failed",
+			Status:  500,
+		}, err
+	}
+
+	return &responsedto.UserRegisterResponse{
+		Message: "register success",
+		Status:  201,
+	}, nil
+
 }
 
 // UserLogin implements [domain.UserUsecase].
 func (u *userUsecase) UserLogin(ctx context.Context, userDto *requestdto.UserLoginRequest) (*responsedto.UserLoginResponse, error) {
-	panic("unimplemented")
+	user, err := u.userRepo.GetUserByUsername(ctx, userDto.Username)
+	if err != nil {
+		u.log.Error("user already exists", zap.Error(err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	if user == nil {
+		u.log.Error("user not found", zap.Error(err))
+		return nil, fmt.Errorf("user not found")
+	}
+	if !user.ComparedPwd(userDto.Password) {
+		u.log.Error("wrong password", zap.Error(err))
+		return nil, fmt.Errorf("wrong password")
+	}
+	roleUser, err := enum.ParseUserRole(user.Role.String())
+	if err != nil {
+		u.log.Error("error parsing role", zap.Error(err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	tokenPair, err := u.jwtService.GenerateTokenPair(user.ID.String(), roleUser.String())
+	if err != nil {
+		u.log.Error("error gen token", zap.Error(err))
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	sessionKey := "session:" + tokenPair.AccessToken
+	session := &domain.Session{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		UserID:       user.ID.String(),
+		Role:         roleUser.String(),
+		ExpiresAt:    time.Now().Add(time.Duration(tokenPair.ExpiresIn) * time.Second),
+	}
+
+	if err := u.sessionRepo.CreateSession(ctx, session, sessionKey, time.Duration(tokenPair.ExpiresIn)*time.Second); err != nil {
+		u.log.Error("error save session", zap.Error(err))
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	return &responsedto.UserLoginResponse{
+		ID:           user.ID.String(),
+		Username:     user.Username,
+		Role:         roleUser.String(),
+		Token:        tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+		ExpiredTime:  int64(tokenPair.ExpiresIn),
+	}, nil
+
 }

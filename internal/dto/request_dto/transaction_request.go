@@ -2,7 +2,7 @@ package requestdto
 
 type AddTransactionRequest struct {
 	NoInvoice        string                        `json:"no_invoice" validate:"required"`
-	TypePayment      int                           `json:"type_payment" validate:"required,oneof=0 1 2 3"`
+	TypePayment      string                        `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
 	TotalTransaction float64                       `json:"total_price" validate:"required,gt=0"`
 	UserId           string                        `json:"user_id" validate:"required"`
 	CustomerId       *string                       `json:"customer_id,omitempty"`

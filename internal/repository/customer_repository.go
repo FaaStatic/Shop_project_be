@@ -18,6 +18,16 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 	return &customerRepository{db: db}
 }
 
+// GetDebtIdByCustomerId implements [domain.CustomerRepository].
+func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error) {
+	var debtId uuid.UUID
+	result := c.db.WithContext(ctx).Where("customer_id = ?", customerId).Pluck("id", &debtId)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
+	}
+	return &debtId, nil
+}
+
 // AddCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) AddCustomer(ctx context.Context, customer *domain.Customers) error {
 	result := c.db.WithContext(ctx).Create(customer)

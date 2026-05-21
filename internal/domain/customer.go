@@ -32,6 +32,7 @@ type CustomerRepository interface {
 	UpdateCustomer(ctx context.Context, id uuid.UUID, customer *Customers) error
 	AddCustomer(ctx context.Context, customer *Customers) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
+	GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error)
 }
 
 type CustomerUsecase interface {

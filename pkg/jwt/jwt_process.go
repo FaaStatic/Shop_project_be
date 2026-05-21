@@ -36,13 +36,13 @@ func NewJWTService(secret string, accessMin, refreshHour int) *JWTService {
 	}
 }
 
-func (j *JWTService) GenerateTokenPair(userID, email, role string) (*TokenPair, error) {
-	accessToken, err := j.generateToken(userID, email, role, "access", j.accessTokenTTL)
+func (j *JWTService) GenerateTokenPair(userID, role string) (*TokenPair, error) {
+	accessToken, err := j.generateToken(userID, role, "access", j.accessTokenTTL)
 	if err != nil {
 		return nil, fmt.Errorf("gagal generate access token: %w", err)
 	}
 
-	refreshToken, err := j.generateToken(userID, email, role, "refresh", j.refreshTokenTTL)
+	refreshToken, err := j.generateToken(userID, role, "refresh", j.refreshTokenTTL)
 	if err != nil {
 		return nil, fmt.Errorf("gagal generate refresh token: %w", err)
 	}
@@ -54,11 +54,10 @@ func (j *JWTService) GenerateTokenPair(userID, email, role string) (*TokenPair, 
 	}, nil
 }
 
-func (j *JWTService) generateToken(userID, email, role, tokenType string, ttl time.Duration) (string, error) {
+func (j *JWTService) generateToken(userID, role, tokenType string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserID: userID,
-		Email:  email,
 		Role:   role,
 		Type:   tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
