@@ -33,6 +33,7 @@ type CustomerRepository interface {
 	AddCustomer(ctx context.Context, customer *Customers) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
 	GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error)
+	GetAllCustomer(ctx context.Context, search string, limit int, offset int) ([]*Customers, error)
 }
 
 type CustomerUsecase interface {

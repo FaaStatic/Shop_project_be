@@ -7,11 +7,11 @@ type DebtPayment struct {
 }
 
 type GetDebtRequest struct {
-	DebtId uint `query:"debt_id" validate="required"`
+	DebtId string `query:"debt_id" validate:"required"`
 }
 
 type FilterDebtRequest struct {
-	UserId     string `query:"user_id" validate="required"`
+	UserId     string `query:"user_id" validate:"required"`
 	CustomerId string `query:"customer_id"`
 	Month      string `query:"month"`
 	Year       string `query:"year"`
@@ -26,7 +26,7 @@ type AddDebtRequest struct {
 
 type DeleteDebtRequest struct {
 	UserId string `json:"user_id" validate:"required"`
-	DebtId string `json:"debt_id" validate="required"`
+	DebtId string `json:"debt_id" validate:"required"`
 }
 
 type PrintDebtReport struct {
