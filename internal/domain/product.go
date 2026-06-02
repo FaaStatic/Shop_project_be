@@ -61,13 +61,14 @@ type ProductRepository interface {
 	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
 	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
 	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error
+	UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta int) error
 }
 
 type ProductUsecase interface {
 	AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error
 	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error
 	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
-	GetProductShop(ctx context.Context, request *requestdto.GetProduct) error
+	GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*Products, error)
 	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error)
 	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error
 	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error

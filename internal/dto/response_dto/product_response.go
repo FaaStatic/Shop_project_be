@@ -1,9 +1,13 @@
 package responsedto
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type ProductDtoResponse struct {
-	ID               uint      `json:"id"`
+	ID               uuid.UUID `json:"id"`
 	SKU              string    `json:"sku"`
 	ProductName      string    `json:"product_name"`
 	Unit             int       `json:"unit"`

@@ -1,9 +1,11 @@
 package responsedto
 
+import "github.com/google/uuid"
+
 type CustomerDtoResponse struct {
-	ID     uint              `gorm:"primaryKey" json:"id"`
-	Nama   string            `gorm:"type:varchar(150);not null" json:"nama"`
-	NoHP   string            `gorm:"type:varchar(15)" json:"no_hp"`
-	Alamat string            `gorm:"type:text" json:"alamat"`
+	ID     uuid.UUID         `json:"id"`
+	Nama   string            `json:"nama"`
+	NoHP   string            `json:"no_hp"`
+	Alamat string            `json:"alamat"`
 	Debts  []DebtResponseDto `json:"debts,omitempty"`
 }

@@ -65,6 +65,30 @@ func (c *customerRepository) GetCustomer(ctx context.Context, id uuid.UUID) (*[]
 	return &customers, nil
 }
 
+// GetAllCustomer implements [domain.CustomerRepository].
+// Mengambil daftar customer dengan pencarian nama (opsional) dan pagination
+// offset (limit + offset). Diurut dari yang terbaru.
+func (c *customerRepository) GetAllCustomer(ctx context.Context, search string, limit int, offset int) ([]*domain.Customers, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := c.db.WithContext(ctx).Model(&domain.Customers{})
+	if search != "" {
+		query = query.Where("name LIKE ?", "%"+search+"%")
+	}
+
+	var items []*domain.Customers
+	result := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&items)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get customers: %w", result.Error)
+	}
+	return items, nil
+}
+
 // UpdateCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) UpdateCustomer(ctx context.Context, id uuid.UUID, customer *domain.Customers) error {
 	result := c.db.WithContext(ctx).Model(&domain.Customers{}).Where("id = ?", id).Updates(customer)

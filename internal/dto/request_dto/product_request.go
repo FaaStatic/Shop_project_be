@@ -18,14 +18,14 @@ type GetProduct struct {
 
 type AddProduct struct {
 	UserId           string  `json:"user_id" validate:"required"`
-	SKU              string  `json:"sku" validate="required"`
-	ProductName      string  `json:"product_name" validate="required"`
+	SKU              string  `json:"sku" validate:"required"`
+	ProductName      string  `json:"product_name" validate:"required"`
 	Unit             int     `json:"unit,omitempty" validate:"omitempty,oneof=0 1 2 3 4"`
-	PurchasePrice    float64 `json:"purchase_price" validate="required"`
-	SellingPrice     float64 `json:"selling_price" validate="required"`
-	SellingPriceDebt float64 `json:"selling_price_debt" validate="required"`
-	Stock            int     `json:"stock" validate="required"`
-	Category         string  `json:"category" validate="required"`
+	PurchasePrice    float64 `json:"purchase_price" validate:"required"`
+	SellingPrice     float64 `json:"selling_price" validate:"required"`
+	SellingPriceDebt float64 `json:"selling_price_debt" validate:"required"`
+	Stock            int     `json:"stock" validate:"required"`
+	Category         string  `json:"category" validate:"required"`
 	Image            string  `json:"image,omitempty"`
 }
 
@@ -36,7 +36,7 @@ type AddBulkProduct struct {
 }
 
 type DeleteProduct struct {
-	ID uint `json:"id" validate:"required"`
+	ID string `json:"id" validate:"required"`
 }
 
 type UpdateProduct struct {
@@ -58,12 +58,13 @@ type UpdateStock struct {
 }
 
 type GetAllProduct struct {
-	UserId   string     `json:"user_id" validate:"required"`
-	category string     `query:"category"`
-	Search   string     `query:"search"`
-	Page     int        `query:"page"`
-	Limit    int        `query:"limit"`
-	HasNext  bool       `query:"has_next`
-	LastId   *uuid.UUID `query:"last_id"`
-	Order    string     `query:"order"`
+	UserId    string     `json:"user_id" validate:"required"`
+	Category  string     `query:"category"`
+	Search    string     `query:"search"`
+	Page      int        `query:"page"`
+	Limit     int        `query:"limit"`
+	HasNext   bool       `query:"has_next"`
+	LastId    *uuid.UUID `query:"last_id"`
+	AfterTime *string    `query:"after_time"`
+	Order     string     `query:"order"`
 }

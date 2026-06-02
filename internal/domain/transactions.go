@@ -53,7 +53,10 @@ func (td *TransactionsDetail) TableName() string {
 type FilterTransaction struct {
 	NoInvoices string
 	Cursor     *paginated.CursorMeta
+	DateStart  *string
+	DateEnd    *string
 	Limit      int
+	TypeTrx    *int
 	Order      string
 }
 
@@ -63,6 +66,38 @@ type ResultTransaction struct {
 	Cursor   *paginated.CursorMeta
 }
 
+// MonthlyReport adalah hasil agregasi transaksi selama satu bulan.
+type MonthlyReport struct {
+	TotalTransaction int64   `gorm:"column:total_transaction"` // jumlah transaksi
+	TotalRevenue     float64 `gorm:"column:total_revenue"`     // pendapatan masuk (selain hutang)
+	TotalDebt        float64 `gorm:"column:total_debt"`        // nilai transaksi hutang
+	GrandTotal       float64 `gorm:"column:grand_total"`       // total seluruh nilai transaksi
+}
+
+// DailyReport adalah agregasi transaksi pada satu hari dalam bulan tersebut.
+type DailyReport struct {
+	Date             time.Time `gorm:"column:date"`
+	TotalTransaction int64     `gorm:"column:total_transaction"`
+	TotalRevenue     float64   `gorm:"column:total_revenue"`
+	TotalDebt        float64   `gorm:"column:total_debt"`
+	GrandTotal       float64   `gorm:"column:grand_total"`
+}
+
+// ProductSoldReport adalah rekap satu produk terjual selama sebulan.
+type ProductSoldReport struct {
+	ProductName string  `gorm:"column:product_name"`
+	Qty         float64 `gorm:"column:qty"`
+	Total       float64 `gorm:"column:total"`
+}
+
+// DailyProductSoldReport adalah rekap satu produk terjual pada satu hari.
+type DailyProductSoldReport struct {
+	Date        time.Time `gorm:"column:date"`
+	ProductName string    `gorm:"column:product_name"`
+	Qty         float64   `gorm:"column:qty"`
+	Total       float64   `gorm:"column:total"`
+}
+
 type TransactionRepository interface {
 	CreateTransaction(ctx context.Context, transaction *Transactions) error
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
@@ -70,12 +105,16 @@ type TransactionRepository interface {
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
 	UpdateTransaction(ctx context.Context, id uuid.UUID, trx *Transactions) error
 	CheckTransactionByNoInvoice(ctx context.Context, noInvoice string) (*Transactions, error)
+	GetMonthlyReport(ctx context.Context, month int, year int) (*MonthlyReport, error)
+	GetDailyReport(ctx context.Context, month int, year int) ([]DailyReport, error)
+	GetMonthlyProductSold(ctx context.Context, month int, year int) ([]ProductSoldReport, error)
+	GetDailyProductSold(ctx context.Context, month int, year int) ([]DailyProductSoldReport, error)
 }
 
 type TransactionUsecase interface {
 	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
 	GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error)
-	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*[]responsedto.TransactionResponse, error)
+	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) ([]*responsedto.TransactionResponse, error)
 	DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error
 	PrintReportTransaction(ctx context.Context, dto *requestdto.PrintReportTransactionRequest) (*responsedto.PrintReportTransactionResponse, error)
 	PrintReportMonth(ctx context.Context, dto *requestdto.PrintReportMonthRequest) (*responsedto.PrintReportMonthTransactionResponse, error)

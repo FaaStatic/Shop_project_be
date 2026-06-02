@@ -16,17 +16,19 @@ type AddTransactionDetailRequest struct {
 }
 
 type GetTransactionRequest struct {
-	ID         uint `query:"id" validate:"required"`
-	UserId     uint `query:"user_id" validate:"required"`
-	CustomerId uint `query:"customer_id,omitempty"`
+	ID         string `query:"id" validate:"required"`
+	UserId     string `query:"user_id" validate:"required"`
+	CustomerId string `query:"customer_id,omitempty"`
 }
 
 type FilterTransactionRequest struct {
-	UserId        string `query:"user_id" validate:"required"`
-	DateStart     string `query:"date_start,omitempty"`
-	DateEnd       string `query:"date_end,omitempty"`
-	TypePayment   int    `query:"type_payment" validate:"required,oneof=0 1 2 3"`
-	SearchInvoice string `query:"number_invoices",omitempty"`
+	UserId        string  `query:"user_id" validate:"required"`
+	DateStart     *string `query:"date_start,omitempty"`
+	DateEnd       *string `query:"date_end,omitempty"`
+	TypePayment   int     `query:"type_payment" validate:"required,oneof=0 1 2 3"`
+	InvoiceNumber string  `query:"number_invoices,omitempty"`
+	AfterTime     *string `query:"after_time,omitempty"`
+	AfterID       *string `query:"after_id,omitempty"`
 }
 
 type DeleteTransactionRequest struct {

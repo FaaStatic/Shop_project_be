@@ -7,6 +7,7 @@ import (
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -108,6 +109,99 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 		HasNext:  hasNext,
 		Cursor:   nextCursor,
 	}, nil
+}
+
+// GetMonthlyReport implements [domain.TransactionRepository].
+// Mengagregasi jumlah transaksi dan nilai transaksi pada bulan & tahun tertentu.
+// payment_type = 1 (hutang) dipisahkan dari pendapatan karena belum diterima.
+func (t *transactionRepository) GetMonthlyReport(ctx context.Context, month int, year int) (*domain.MonthlyReport, error) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+
+	var report domain.MonthlyReport
+	result := t.db.WithContext(ctx).
+		Model(&domain.Transactions{}).
+		Where("created_at >= ? AND created_at < ?", start, end).
+		Select(`COUNT(*) AS total_transaction,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> 1), 0) AS total_revenue,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = 1), 0) AS total_debt,
+			COALESCE(SUM(total_transaction), 0) AS grand_total`).
+		Scan(&report)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get monthly report: %w", result.Error)
+	}
+	return &report, nil
+}
+
+// GetDailyReport implements [domain.TransactionRepository].
+// Mengagregasi transaksi per hari (per tanggal) dalam bulan & tahun tertentu,
+// diurut menaik berdasarkan tanggal. Hanya hari yang ada transaksi yang muncul.
+func (t *transactionRepository) GetDailyReport(ctx context.Context, month int, year int) ([]domain.DailyReport, error) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+
+	var rows []domain.DailyReport
+	result := t.db.WithContext(ctx).
+		Model(&domain.Transactions{}).
+		Where("created_at >= ? AND created_at < ?", start, end).
+		Select(`(created_at)::date AS date,
+			COUNT(*) AS total_transaction,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> 1), 0) AS total_revenue,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = 1), 0) AS total_debt,
+			COALESCE(SUM(total_transaction), 0) AS grand_total`).
+		Group(`(created_at)::date`).
+		Order(`(created_at)::date ASC`).
+		Scan(&rows)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get daily report: %w", result.Error)
+	}
+	return rows, nil
+}
+
+// GetMonthlyProductSold implements [domain.TransactionRepository].
+// Rekap produk terjual selama sebulan (total qty & total penjualan per produk),
+// diurut dari yang paling banyak terjual.
+func (t *transactionRepository) GetMonthlyProductSold(ctx context.Context, month int, year int) ([]domain.ProductSoldReport, error) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+
+	var rows []domain.ProductSoldReport
+	result := t.db.WithContext(ctx).
+		Table("transactions_detail AS td").
+		Joins("JOIN transactions AS t ON t.id = td.transaction_id").
+		Joins("JOIN products AS p ON p.id = td.product_id").
+		Where("t.created_at >= ? AND t.created_at < ? AND t.deleted_at IS NULL", start, end).
+		Select("p.product_name AS product_name, SUM(td.qty) AS qty, SUM(td.subtotal) AS total").
+		Group("p.product_name").
+		Order("qty DESC").
+		Scan(&rows)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get monthly product sold: %w", result.Error)
+	}
+	return rows, nil
+}
+
+// GetDailyProductSold implements [domain.TransactionRepository].
+// Rekap produk terjual per hari (qty & penjualan per produk pada tiap tanggal),
+// diurut menaik per tanggal lalu produk terlaris di hari itu.
+func (t *transactionRepository) GetDailyProductSold(ctx context.Context, month int, year int) ([]domain.DailyProductSoldReport, error) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+
+	var rows []domain.DailyProductSoldReport
+	result := t.db.WithContext(ctx).
+		Table("transactions_detail AS td").
+		Joins("JOIN transactions AS t ON t.id = td.transaction_id").
+		Joins("JOIN products AS p ON p.id = td.product_id").
+		Where("t.created_at >= ? AND t.created_at < ? AND t.deleted_at IS NULL", start, end).
+		Select("(t.created_at)::date AS date, p.product_name AS product_name, SUM(td.qty) AS qty, SUM(td.subtotal) AS total").
+		Group("(t.created_at)::date, p.product_name").
+		Order("(t.created_at)::date ASC, qty DESC").
+		Scan(&rows)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get daily product sold: %w", result.Error)
+	}
+	return rows, nil
 }
 
 // GetTransactionByID implements [domain.TransactionRepository].

@@ -24,7 +24,7 @@ func NewDebtRepository(db *gorm.DB) domain.DebtRepository {
 // GetDebtByID implements [domain.DebtRepository].
 func (d *debtRepository) GetDebtByID(ctx context.Context, id uuid.UUID) (*domain.Debts, error) {
 	var debt domain.Debts
-	result := d.db.Preload("Customer").Preload("Transactions").Preload("DebtPayments").WithContext(ctx).Where("id = ?", id).First(&debt)
+	result := d.db.Preload("Customer").Preload("Transactions").Preload("DebtPayments").Preload("DebtPayments.User").WithContext(ctx).Where("id = ?", id).First(&debt)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("debt with id %s not found: %w", id, result.Error)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -59,12 +60,25 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 		}, nil
 	}
 
+	// Urutkan berdasarkan SKU agar setiap transaksi mengunci baris/index dalam
+	// urutan yang sama -> mencegah deadlock saat ada upload bersamaan.
+	sort.Slice(newProducts, func(i, j int) bool {
+		return newProducts[i].SKU < newProducts[j].SKU
+	})
+
 	const batchSize = 100
+	var inserted int64
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.CreateInBatches(newProducts, batchSize)
+		// ON CONFLICT (sku) DO NOTHING: aman bila ada SKU yang lolos pre-check
+		// namun sudah ditambahkan transaksi lain (race) atau soft-deleted.
+		result := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "sku"}},
+			DoNothing: true,
+		}).CreateInBatches(newProducts, batchSize)
 		if result.Error != nil {
 			return fmt.Errorf("failed during batch insert: %w", result.Error)
 		}
+		inserted = result.RowsAffected
 		return nil
 	})
 
@@ -72,9 +86,15 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 		return nil, err
 	}
 
+	// Baris yang dilewati karena konflik SKU (race/soft-deleted) dihitung sebagai skipped.
+	conflictSkipped := len(newProducts) - int(inserted)
+	if conflictSkipped < 0 {
+		conflictSkipped = 0
+	}
+
 	return &domain.BulkInsertResult{
-		TotalInserted: len(newProducts),
-		TotalSkipped:  len(skippedSKUs),
+		TotalInserted: int(inserted),
+		TotalSkipped:  len(skippedSKUs) + conflictSkipped,
 		SkippedSKUs:   skippedSKUs,
 	}, nil
 }
@@ -183,6 +203,40 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 		return fmt.Errorf("failed to update product: %w", result.Error)
 	}
 	return nil
+}
+
+// UpdateProductWithLock implements [domain.ProductRepository].
+// Mengunci baris produk (SELECT ... FOR UPDATE) lalu menerapkan update parsial
+// dari fields. Bila stockDelta != 0, stok diubah secara atomik (current + delta)
+// di dalam lock yang sama -> mencegah lost-update saat ada perubahan bersamaan.
+func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta int) error {
+	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var product domain.Products
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", id).First(&product).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("product with id %s not found", id)
+			}
+			return fmt.Errorf("failed to find product for update: %w", err)
+		}
+
+		if stockDelta != 0 {
+			newStock := product.Stock + stockDelta
+			if newStock < 0 {
+				return fmt.Errorf("insufficient stock for product %s (current: %d, requested change: %d)", id, product.Stock, stockDelta)
+			}
+			fields["stock"] = newStock
+		}
+
+		if len(fields) == 0 {
+			return nil
+		}
+
+		if err := tx.Model(&domain.Products{}).Where("id = ?", id).Updates(fields).Error; err != nil {
+			return fmt.Errorf("failed to update product: %w", err)
+		}
+		return nil
+	})
 }
 
 // UpdateStockWithLock implements [domain.ProductRepository].

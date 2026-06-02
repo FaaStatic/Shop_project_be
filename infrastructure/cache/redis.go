@@ -12,6 +12,7 @@ func InitRedis(cfg *envconfig.RedisConfig) (*redis.Client, error) {
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Host, cfg.Port),
+		Username:     cfg.Username,
 		Password:     cfg.Password,
 		DB:           cfg.Db,
 		PoolSize:     10,
