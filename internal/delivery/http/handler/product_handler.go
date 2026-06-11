@@ -19,7 +19,19 @@ func NewProductHandler(usecase domain.ProductUsecase, log *zap.Logger) *ProductH
 	return &ProductHandler{usecase: usecase, log: log}
 }
 
-// Add menangani POST /products.
+// Add godoc
+//
+//	@Summary		Tambah produk
+//	@Description	Menambahkan produk baru ke toko milik user yang login.
+//	@Tags			Products
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.AddProduct	true	"Data produk"
+//	@Success		201		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/products [post]
 func (h *ProductHandler) Add(c fiber.Ctx) error {
 	var req requestdto.AddProduct
 	if err := bindBody(c, &req); err != nil {
@@ -35,7 +47,19 @@ func (h *ProductHandler) Add(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusCreated, "product created", nil)
 }
 
-// AddBulk menangani POST /products/bulk (upload CSV/Excel).
+// AddBulk godoc
+//
+//	@Summary		Import produk massal
+//	@Description	Mengimpor banyak produk sekaligus dari file CSV/Excel.
+//	@Tags			Products
+//	@Accept			multipart/form-data
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			name_file	formData	string	false	"Nama file"
+//	@Param			file_upload	formData	file	true	"File CSV/Excel produk"
+//	@Success		201			{object}	response.APIResponse
+//	@Failure		400			{object}	response.APIResponse
+//	@Router			/api/products/bulk [post]
 func (h *ProductHandler) AddBulk(c fiber.Ctx) error {
 	fileHeader, err := c.FormFile("file_upload")
 	if err != nil {
@@ -52,7 +76,18 @@ func (h *ProductHandler) AddBulk(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusCreated, "bulk product imported", nil)
 }
 
-// Get menangani GET /products/:id.
+// Get godoc
+//
+//	@Summary		Detail produk
+//	@Description	Mengambil detail produk berdasarkan ID.
+//	@Tags			Products
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path		string	true	"Product ID"
+//	@Success		200	{object}	response.APIResponse
+//	@Failure		400	{object}	response.APIResponse
+//	@Failure		404	{object}	response.APIResponse
+//	@Router			/api/products/{id} [get]
 func (h *ProductHandler) Get(c fiber.Ctx) error {
 	req := requestdto.GetProduct{ID: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
@@ -65,7 +100,24 @@ func (h *ProductHandler) Get(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "product found", product)
 }
 
-// List menangani GET /products.
+// List godoc
+//
+//	@Summary		List produk
+//	@Description	Mengambil daftar produk milik user yang login, dengan filter dan pagination.
+//	@Tags			Products
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			category	query		string	false	"Filter kategori"
+//	@Param			search		query		string	false	"Pencarian nama/SKU produk"
+//	@Param			page		query		int		false	"Halaman"
+//	@Param			limit		query		int		false	"Jumlah data per halaman"
+//	@Param			last_id		query		string	false	"ID terakhir untuk cursor pagination"
+//	@Param			after_time	query		string	false	"Cursor waktu untuk pagination"
+//	@Param			order		query		string	false	"Urutan data"
+//	@Success		200			{object}	response.APIResponse
+//	@Failure		400			{object}	response.APIResponse
+//	@Failure		500			{object}	response.APIResponse
+//	@Router			/api/products [get]
 func (h *ProductHandler) List(c fiber.Ctx) error {
 	var req requestdto.GetAllProduct
 	if err := bindQuery(c, &req); err != nil {
@@ -79,7 +131,19 @@ func (h *ProductHandler) List(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "products fetched", products)
 }
 
-// Update menangani PUT /products (atribut produk, tanpa mengubah stok).
+// Update godoc
+//
+//	@Summary		Update produk
+//	@Description	Memperbarui atribut produk (tidak mengubah stok).
+//	@Tags			Products
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.UpdateProduct	true	"Data produk yang diperbarui"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/products [put]
 func (h *ProductHandler) Update(c fiber.Ctx) error {
 	var req requestdto.UpdateProduct
 	if err := bindBody(c, &req); err != nil {
@@ -95,8 +159,19 @@ func (h *ProductHandler) Update(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "product updated", nil)
 }
 
-// UpdateStock menangani PATCH /products/stock. Field stock diperlakukan sebagai
-// delta (positif menambah, negatif mengurangi) dan diterapkan dengan lock.
+// UpdateStock godoc
+//
+//	@Summary		Update stok produk
+//	@Description	Mengubah stok produk berdasarkan delta (positif menambah, negatif mengurangi).
+//	@Tags			Products
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.UpdateStock	true	"Delta stok produk"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/products/stock [patch]
 func (h *ProductHandler) UpdateStock(c fiber.Ctx) error {
 	var req requestdto.UpdateStock
 	if err := bindBody(c, &req); err != nil {
@@ -111,7 +186,19 @@ func (h *ProductHandler) UpdateStock(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "stock updated", nil)
 }
 
-// Delete menangani DELETE /products.
+// Delete godoc
+//
+//	@Summary		Hapus produk
+//	@Description	Menghapus produk berdasarkan ID.
+//	@Tags			Products
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.DeleteProduct	true	"ID produk yang dihapus"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/products [delete]
 func (h *ProductHandler) Delete(c fiber.Ctx) error {
 	var req requestdto.DeleteProduct
 	if err := bindBody(c, &req); err != nil {

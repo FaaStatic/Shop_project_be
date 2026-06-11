@@ -32,6 +32,9 @@ migrate-reset-dev:
 	APP_ENV=development go run main.go migrate-reset
 	@echo "Migration Development Done"
 
+swagger:
+	$(shell go env GOPATH)/bin/swag init -g main.go --parseInternal --parseDependency --ot json -o .
+
 test:
 	APP_ENV=development go test -v ./...
 

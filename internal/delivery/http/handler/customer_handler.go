@@ -19,7 +19,19 @@ func NewCustomerHandler(usecase domain.CustomerUsecase, log *zap.Logger) *Custom
 	return &CustomerHandler{usecase: usecase, log: log}
 }
 
-// Add menangani POST /customers.
+// Add godoc
+//
+//	@Summary		Tambah customer
+//	@Description	Menambahkan customer baru.
+//	@Tags			Customers
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.AddCustomer	true	"Data customer"
+//	@Success		201		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/customers [post]
 func (h *CustomerHandler) Add(c fiber.Ctx) error {
 	var req requestdto.AddCustomer
 	if err := bindBody(c, &req); err != nil {
@@ -35,7 +47,19 @@ func (h *CustomerHandler) Add(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusCreated, "customer created", nil)
 }
 
-// Update menangani PUT /customers.
+// Update godoc
+//
+//	@Summary		Update customer
+//	@Description	Memperbarui data customer.
+//	@Tags			Customers
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.UpdateCustomer	true	"Data customer yang diperbarui"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/customers [put]
 func (h *CustomerHandler) Update(c fiber.Ctx) error {
 	var req requestdto.UpdateCustomer
 	if err := bindBody(c, &req); err != nil {
@@ -51,7 +75,19 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "customer updated", nil)
 }
 
-// Delete menangani DELETE /customers.
+// Delete godoc
+//
+//	@Summary		Hapus customer
+//	@Description	Menghapus customer berdasarkan ID.
+//	@Tags			Customers
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.DeleteCustomer	true	"ID customer yang dihapus"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/customers [delete]
 func (h *CustomerHandler) Delete(c fiber.Ctx) error {
 	var req requestdto.DeleteCustomer
 	if err := bindBody(c, &req); err != nil {
@@ -67,7 +103,18 @@ func (h *CustomerHandler) Delete(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "customer deleted", nil)
 }
 
-// Get menangani GET /customers/:id.
+// Get godoc
+//
+//	@Summary		Detail customer
+//	@Description	Mengambil detail customer berdasarkan ID.
+//	@Tags			Customers
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path		string	true	"Customer ID"
+//	@Success		200	{object}	response.APIResponse
+//	@Failure		400	{object}	response.APIResponse
+//	@Failure		404	{object}	response.APIResponse
+//	@Router			/api/customers/{id} [get]
 func (h *CustomerHandler) Get(c fiber.Ctx) error {
 	req := requestdto.GetCustomer{CustomerId: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
@@ -80,7 +127,20 @@ func (h *CustomerHandler) Get(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "customer found", customer)
 }
 
-// List menangani GET /customers.
+// List godoc
+//
+//	@Summary		List customer
+//	@Description	Mengambil daftar customer milik user yang login.
+//	@Tags			Customers
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			page	query		int		false	"Halaman"
+//	@Param			limit	query		int		false	"Jumlah data per halaman"
+//	@Param			search	query		string	false	"Pencarian nama customer"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/customers [get]
 func (h *CustomerHandler) List(c fiber.Ctx) error {
 	var req requestdto.GetAllCustomer
 	if err := bindQuery(c, &req); err != nil {

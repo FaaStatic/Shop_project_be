@@ -6,6 +6,7 @@ import (
 	zaplogger "shop_project_be/infrastructure/logger"
 
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 var migrateDb = &cobra.Command{
@@ -16,7 +17,9 @@ var migrateDb = &cobra.Command{
 
 		zaplogger.LoggerCustom(env)
 		defer zaplogger.Logger.Sync()
-		database.MigrateDB(zaplogger.Logger)
+		if err := database.MigrateDB(zaplogger.Logger); err != nil {
+			zaplogger.Logger.Fatal("gagal migrate database", zap.Error(err))
+		}
 	},
 }
 

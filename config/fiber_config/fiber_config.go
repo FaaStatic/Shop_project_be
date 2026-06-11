@@ -62,7 +62,7 @@ func GetFiberConfigListener(env string) fiber.ListenConfig {
 	return fiber.ListenConfig{
 		EnablePrefork:     true,
 		EnablePrintRoutes: env == "development",
-		TLSMinVersion:     tls.VersionTLS10,
+		TLSMinVersion:     tls.VersionTLS12,
 	}
 }
 
@@ -71,7 +71,7 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 		Next:     nil,
 		BasePath: "/",
 		FilePath: "./swagger.json",
-		Path:     "docs",
+		Path:     "swagger",
 		Title:    nameApp + " API documentation",
 		CacheAge: 3600,
 	}
