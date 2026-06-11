@@ -44,7 +44,9 @@ var migrateResetCmd = &cobra.Command{
 			panic("stop! Failed to reset database")
 		}
 
-		database.MigrateDB(zaplogger.Logger)
+		if err := database.MigrateDB(zaplogger.Logger); err != nil {
+			zaplogger.Logger.Fatal("gagal migrate database", zap.Error(err))
+		}
 		fmt.Println("Database berhasil di-reset dan di-migrasi ulang!")
 	},
 }
