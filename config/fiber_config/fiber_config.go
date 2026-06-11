@@ -2,6 +2,8 @@ package fiberconfig
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"os"
 	"time"
 
 	envconfig "shop_project_be/config/env_config"
@@ -66,14 +68,40 @@ func GetFiberConfigListener(env string) fiber.ListenConfig {
 	}
 }
 
+// loadSwaggerSpec membaca swagger.json hasil `make swagger` dan menimpa
+// info.title dengan nama aplikasi dari config yaml, supaya judul yang
+// tampil di Swagger UI ikut berubah jika server.name diganti.
+func loadSwaggerSpec(nameApp string) []byte {
+	raw, err := os.ReadFile("./swagger.json")
+	if err != nil {
+		return nil
+	}
+
+	var spec map[string]interface{}
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return raw
+	}
+
+	if info, ok := spec["info"].(map[string]interface{}); ok {
+		info["title"] = nameApp + " API"
+	}
+
+	patched, err := json.Marshal(spec)
+	if err != nil {
+		return raw
+	}
+	return patched
+}
+
 func GetSwaggerConfig(nameApp string) swagger.Config {
 	return swagger.Config{
-		Next:     nil,
-		BasePath: "/",
-		FilePath: "./swagger.json",
-		Path:     "swagger",
-		Title:    nameApp + " API documentation",
-		CacheAge: 3600,
+		Next:        nil,
+		BasePath:    "/",
+		FilePath:    "./swagger.json",
+		FileContent: loadSwaggerSpec(nameApp),
+		Path:        "swagger",
+		Title:       nameApp + " API documentation",
+		CacheAge:    3600,
 	}
 }
 
