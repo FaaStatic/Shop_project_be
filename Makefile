@@ -1,4 +1,4 @@
-APP_NAME := $(shell grep -m 1 "^module" go.mod | awk -F'/' '{print $$NF}')
+APP_NAME := $(shell grep -m 1 "^module" go.mod | awk '{print $$2}' | awk -F'/' '{print $$NF}')
 
 all: build
 
