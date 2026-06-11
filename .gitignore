@@ -4,6 +4,7 @@ go.sum
 logs/
 storage/
 .config.development.yaml
+.config.production.yaml
 .config.yaml
 .claude
 .DS_Store
@@ -18,3 +19,5 @@ storage/
 build/
 dist/
 .build/
+.claude
+shop_project_be
