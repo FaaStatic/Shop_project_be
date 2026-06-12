@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"shop_project_be/internal/delivery/http/middleware"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	"shop_project_be/pkg/response"
@@ -77,4 +78,44 @@ func (h *UserHandler) Login(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusUnauthorized, err.Error(), err)
 	}
 	return response.Success(c, fiber.StatusOK, "login success", result)
+}
+
+// Logout godoc
+//
+//	@Summary		Logout user
+//	@Description	Menghapus session user yang sedang login (token jadi tidak valid).
+//	@Tags			Auth
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{object}	response.APIResponse
+//	@Failure		401	{object}	response.APIResponse
+//	@Router			/api/users/logout [post]
+func (h *UserHandler) Logout(c fiber.Ctx) error {
+	token, _ := c.Locals("access_token").(string)
+	if token == "" {
+		return response.Error(c, fiber.StatusUnauthorized, "token not found", nil)
+	}
+	userID := middleware.GetUserID(c)
+	if err := h.usecase.Logout(c.Context(), token, userID); err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "logout failed", err)
+	}
+	return response.Success(c, fiber.StatusOK, "logout success", nil)
+}
+
+// OnlineUsers godoc
+//
+//	@Summary		Daftar kasir online
+//	@Description	Mengembalikan daftar user (kasir) yang sedang online saat ini.
+//	@Tags			Users
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Success		200	{object}	response.APIResponse
+//	@Failure		500	{object}	response.APIResponse
+//	@Router			/api/users/online [get]
+func (h *UserHandler) OnlineUsers(c fiber.Ctx) error {
+	users, err := h.usecase.ListOnlineUsers(c.Context())
+	if err != nil {
+		return response.Error(c, fiber.StatusInternalServerError, "failed to get online users", err)
+	}
+	return response.Success(c, fiber.StatusOK, "online users fetched", users)
 }

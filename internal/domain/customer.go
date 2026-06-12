@@ -34,6 +34,9 @@ type CustomerRepository interface {
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
 	GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error)
 	GetAllCustomer(ctx context.Context, search string, limit int, offset int) ([]*Customers, error)
+	// LockCustomerForUpdate mengunci baris customer dalam transaksi berjalan
+	// (mencegah race pembuatan hutang ganda saat penjualan hutang bersamaan).
+	LockCustomerForUpdate(ctx context.Context, id uuid.UUID) error
 }
 
 type CustomerUsecase interface {
