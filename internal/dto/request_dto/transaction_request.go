@@ -1,18 +1,22 @@
 package requestdto
 
 type AddTransactionRequest struct {
-	NoInvoice        string                        `json:"no_invoice" validate:"required"`
-	TypePayment      string                        `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
-	TotalTransaction float64                       `json:"total_price" validate:"required,gt=0"`
-	UserId           string                        `json:"user_id" validate:"required"`
-	CustomerId       *string                       `json:"customer_id,omitempty"`
-	Details          []AddTransactionDetailRequest `json:"details" validate:"required,dive"`
+	NoInvoice   string `json:"no_invoice" validate:"required"`
+	TypePayment string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
+	// TotalTransaction hanya informatif; nilai final dihitung server-side dari
+	// harga produk (lihat usecase.AddTransaction) agar tidak bisa dimanipulasi.
+	TotalTransaction float64                       `json:"total_price,omitempty"`
+	UserId           string                        `json:"user_id" validate:"required,uuid"`
+	CustomerId       *string                       `json:"customer_id,omitempty" validate:"omitempty,uuid"`
+	Details          []AddTransactionDetailRequest `json:"details" validate:"required,min=1,dive"`
 }
 
 type AddTransactionDetailRequest struct {
-	ProductId string  `json:"product_id" validate:"required"`
+	ProductId string  `json:"product_id" validate:"required,uuid"`
 	Qty       float64 `json:"qty" validate:"required,gt=0"`
-	Subtotal  float64 `json:"subtotal" validate:"required,gt=0"`
+	// Subtotal diabaikan server (dihitung dari harga produk × qty); dibiarkan
+	// opsional untuk kompatibilitas payload lama.
+	Subtotal float64 `json:"subtotal,omitempty"`
 }
 
 type GetTransactionRequest struct {

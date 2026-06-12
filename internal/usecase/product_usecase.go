@@ -29,7 +29,12 @@ func NewProductUsecase(productRepo domain.ProductRepository, log *zap.Logger) do
 
 // GetProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*domain.Products, error) {
-	productUid := uuid.MustParse(request.ID)
+	// Parse aman: id tidak valid -> error 400, bukan panic (uuid.MustParse panic).
+	productUid, err := uuid.Parse(request.ID)
+	if err != nil {
+		p.log.Error("invalid product id", zap.Error(err))
+		return nil, fmt.Errorf("invalid product id format")
+	}
 	products, err := p.productRepo.GetProduct(ctx, productUid)
 	if err != nil {
 		p.log.Error("failed to get product", zap.Error(err))
@@ -138,8 +143,13 @@ func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *re
 
 // DeleteProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error {
-	id := uuid.MustParse(request.ID)
-	err := p.productRepo.DeleteProduct(ctx, id)
+	// Parse aman: id tidak valid -> error 400, bukan panic (uuid.MustParse panic).
+	id, err := uuid.Parse(request.ID)
+	if err != nil {
+		p.log.Error("invalid product id", zap.Error(err))
+		return fmt.Errorf("invalid product id format")
+	}
+	err = p.productRepo.DeleteProduct(ctx, id)
 	if err != nil {
 		p.log.Error("failed to delete product", zap.Error(err))
 		return fmt.Errorf("failed to delete product")

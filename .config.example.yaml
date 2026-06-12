@@ -1,8 +1,12 @@
 server:
-  port: 
-  name: 
-  env: 
-  host: 
+  port:
+  name:
+  env:
+  host:
+  # Daftar IP/CIDR reverse proxy yang dipercaya (mis. nginx). Isi bila app
+  # berada di belakang proxy agar c.IP() membaca X-Forwarded-For (rate limit
+  # mengenali IP user asli). Kosongkan bila app diakses langsung.
+  trusted_proxies: []
 database:
   user:
   pass:

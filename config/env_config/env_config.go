@@ -21,6 +21,11 @@ type AppConfig struct {
 	Port string
 	Env  string
 	Host string
+	// TrustedProxies adalah daftar IP/CIDR reverse proxy yang dipercaya. Bila
+	// diisi (mis. ["127.0.0.1"] saat di belakang nginx), c.IP() akan membaca
+	// X-Forwarded-For sehingga rate limiter mengenali IP user asli, bukan IP
+	// proxy. Kosong = tidak ada proxy dipercaya (default, anti header spoofing).
+	TrustedProxies []string
 }
 
 type DBConfig struct {
@@ -85,10 +90,11 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 
 	cfg = &Config{
 		App: AppConfig{
-			Name: viper.GetString("server.name"),
-			Port: viper.GetString("server.port"),
-			Env:  viper.GetString("server.env"),
-			Host: viper.GetString("server.host"),
+			Name:           viper.GetString("server.name"),
+			Port:           viper.GetString("server.port"),
+			Env:            viper.GetString("server.env"),
+			Host:           viper.GetString("server.host"),
+			TrustedProxies: viper.GetStringSlice("server.trusted_proxies"),
 		},
 		DB: DBConfig{
 			Host:     viper.GetString("database.host"),

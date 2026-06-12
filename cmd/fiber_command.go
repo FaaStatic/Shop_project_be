@@ -12,6 +12,7 @@ import (
 	"shop_project_be/internal/delivery/http/route"
 	"shop_project_be/internal/repository"
 	"shop_project_be/internal/usecase"
+	"shop_project_be/pkg/dbtx"
 	"shop_project_be/pkg/jwt"
 
 	"github.com/spf13/cobra"
@@ -50,12 +51,21 @@ var serverRun = &cobra.Command{
 		debtRepo := repository.NewDebtRepository(db)
 		sessionRepo := repository.NewSessionRepository(redisClient)
 
+		// Transaction manager: menjalankan beberapa operasi repo dalam satu
+		// transaksi database (dipakai mis. saat penjualan).
+		txManager := dbtx.NewManager(db)
+
+		// Storage rate limiter berbasis Redis (akurat walau prefork aktif).
+		// Prefix berbeda agar counter login & global tidak bertabrakan.
+		loginLimiterStore := cache.NewLimiterStorage(redisClient, "rl:login:")
+		globalLimiterStore := cache.NewLimiterStorage(redisClient, "rl:global:")
+
 		// Service
 		jwtService := jwt.NewJWTService(envConf.JWT.Secret, envConf.JWT.AccessTokenTTL, envConf.JWT.RefreshTokenTTL)
 
 		// Usecase
 		productUC := usecase.NewProductUsecase(productRepo, loggerconfig.Logger)
-		trxUC := usecase.NewTransactionUsecase(trxRepo, productRepo, userRepo, customerRepo, debtRepo, envConf.App.Name, loggerconfig.Logger)
+		trxUC := usecase.NewTransactionUsecase(trxRepo, productRepo, userRepo, customerRepo, debtRepo, txManager, envConf.App.Name, loggerconfig.Logger)
 		customerUC := usecase.NewCustomerUsecase(customerRepo, loggerconfig.Logger)
 		debtUC := usecase.NewDebtUsecase(debtRepo, loggerconfig.Logger)
 		userUC := usecase.NewUserUsecase(userRepo, sessionRepo, loggerconfig.Logger, jwtService)
@@ -70,7 +80,8 @@ var serverRun = &cobra.Command{
 		}
 		jwtMw := middleware.NewJwtMiddleware(jwtService, sessionRepo)
 
-		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, route.New(handlers, jwtMw, loggerconfig.Logger))
+		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, globalLimiterStore,
+			route.New(handlers, jwtMw, loginLimiterStore, loggerconfig.Logger))
 
 		loggerconfig.Logger.Info("server starting",
 			zap.String("app", envConf.App.Name),
