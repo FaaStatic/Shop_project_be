@@ -18,13 +18,14 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/csrf"
 	"github.com/gofiber/fiber/v3/middleware/encryptcookie"
 	"github.com/gofiber/fiber/v3/middleware/helmet"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/static"
 	"go.uber.org/zap"
 )
 
-func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
-	return fiber.Config{
+func GetFiberConfig(logger *zap.Logger, appName string, trustedProxies []string) fiber.Config {
+	cfg := fiber.Config{
 		JSONEncoder:     sonic.Marshal,
 		JSONDecoder:     sonic.Unmarshal,
 		StructValidator: appvalidator.New(),
@@ -33,9 +34,11 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 		ReadTimeout:     5 * time.Second,
 		WriteTimeout:    10 * time.Second,
 		IdleTimeout:     120 * time.Second,
-		BodyLimit:       1024 * 1024 * 1024,
-		CaseSensitive:   true,
-		StrictRouting:   true,
+		// Batasi body maksimum 10 MB. Sebelumnya 1 GB -> rawan DoS memori
+		// (terutama pada endpoint upload Excel/CSV). Naikkan bila perlu file besar.
+		BodyLimit:     10 * 1024 * 1024,
+		CaseSensitive: true,
+		StrictRouting: true,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			message := "something went wrong, please try again later"
@@ -58,6 +61,18 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 			})
 		},
 	}
+
+	// Bila ada proxy yang dipercaya (mis. nginx di depan app), aktifkan TrustProxy
+	// agar c.IP() membaca X-Forwarded-For dari proxy tersebut. Tanpa ini, di
+	// belakang proxy semua request tampak dari 1 IP sehingga rate limiter salah
+	// menghitung. Default kosong = TrustProxy mati (anti header spoofing).
+	if len(trustedProxies) > 0 {
+		cfg.TrustProxy = true
+		cfg.ProxyHeader = fiber.HeaderXForwardedFor
+		cfg.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: trustedProxies}
+	}
+
+	return cfg
 }
 
 func GetFiberConfigListener(env string) fiber.ListenConfig {
@@ -108,15 +123,17 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 // InitFiber membangun aplikasi Fiber beserta middleware-nya.
 // routes adalah fungsi-fungsi pendaftar route aplikasi; semuanya didaftarkan
 // SEBELUM handler "not found" agar endpoint tetap terjangkau.
-func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, routes ...func(router fiber.Router)) *fiber.App {
+func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, globalLimiterStore fiber.Storage, routes ...func(router fiber.Router)) *fiber.App {
 	envConf, err := envconfig.InitEnvConfig(logger)
 	if err != nil {
 		logger.Fatal("Failed to initialize environment configuration", zap.Error(err))
 	}
-	app := fiber.New(GetFiberConfig(logger, envConf.App.Name))
+	app := fiber.New(GetFiberConfig(logger, envConf.App.Name, envConf.App.TrustedProxies))
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
 	}))
+	// Proteksi umum dari flooding request per IP.
+	app.Use(limiter.New(middleware.GetGlobalLimiter(globalLimiterStore)))
 	app.Use(helmet.New(middleware.GetXSSConfig()))
 	app.Use(compress.New(middleware.GetCompressConfig()))
 	app.Use(cors.New(middleware.GetCorsConfig()))

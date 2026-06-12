@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
@@ -22,36 +23,52 @@ type transactionUsecase struct {
 	userRepo     domain.UserRepository
 	customerRepo domain.CustomerRepository
 	debtRepo     domain.DebtRepository
+	txManager    domain.TxManager
 	storeName    string
 	log          *zap.Logger
 }
 
-func NewTransactionUsecase(trxRepo domain.TransactionRepository, productRepo domain.ProductRepository, userRepo domain.UserRepository, customerRepo domain.CustomerRepository, debtRepo domain.DebtRepository, storeName string, log *zap.Logger) domain.TransactionUsecase {
+func NewTransactionUsecase(trxRepo domain.TransactionRepository, productRepo domain.ProductRepository, userRepo domain.UserRepository, customerRepo domain.CustomerRepository, debtRepo domain.DebtRepository, txManager domain.TxManager, storeName string, log *zap.Logger) domain.TransactionUsecase {
 	return &transactionUsecase{
 		trxRepo:      trxRepo,
 		productRepo:  productRepo,
 		userRepo:     userRepo,
 		customerRepo: customerRepo,
 		debtRepo:     debtRepo,
+		txManager:    txManager,
 		storeName:    storeName,
 		log:          log,
 	}
 }
 
 // AddTransaction implements [domain.TransactionUsecase].
+//
+// Membuat transaksi penjualan baru. Bagian VALIDASI (invoice unik, user ada,
+// tipe bayar valid, customer ada untuk hutang) dilakukan di luar transaksi.
+// Bagian PENULISAN yang harus konsisten (kurangi stok, hitung total dari harga
+// produk, catat/akumulasi hutang, insert transaksi) dijalankan di dalam
+// txManager.Do sehingga semuanya ATOMIK: bila ada satu langkah gagal, seluruh
+// perubahan di-rollback. Repo (productRepo, debtRepo, dst) dipakai apa adanya —
+// mereka otomatis ikut transaksi yang sama lewat dbtx.Conn.
 func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
-	check, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, dto.NoInvoice)
+	// 1. Pastikan nomor invoice belum pernah dipakai.
+	existing, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, dto.NoInvoice)
 	if err != nil {
 		t.log.Error("failed to check transaction", zap.Error(err))
 		return fmt.Errorf("failed to check transaction")
 	}
-	if check != nil {
-		t.log.Error("transaction with no invoice %s already exists", zap.String("no_invoice", dto.NoInvoice))
+	if existing != nil {
+		t.log.Warn("duplicate invoice", zap.String("no_invoice", dto.NoInvoice))
 		return fmt.Errorf("transaction with no invoice %s already exists", dto.NoInvoice)
 	}
 
-	userId := uuid.Must(uuid.Parse(dto.UserId))
-	user, err := t.userRepo.GetUserById(ctx, userId)
+	// 2. user_id berasal dari token (di-set handler). Parse aman tanpa panic.
+	userID, err := uuid.Parse(dto.UserId)
+	if err != nil {
+		t.log.Error("invalid user id", zap.Error(err))
+		return fmt.Errorf("invalid user id format")
+	}
+	user, err := t.userRepo.GetUserById(ctx, userID)
 	if err != nil {
 		t.log.Error("failed to get user", zap.Error(err))
 		return fmt.Errorf("failed to get user")
@@ -61,129 +78,174 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 		return fmt.Errorf("user not found")
 	}
 
-	var customerId *uuid.UUID
-	if dto.CustomerId != nil {
-		parsedID, err := uuid.Parse(*dto.CustomerId)
-		if err != nil {
-			t.log.Error("failed to parse customer ID", zap.Error(err))
-			return fmt.Errorf("failed to parse customer ID")
-		}
-		customerId = &parsedID
-	}
-
-	var detailTrx []domain.TransactionsDetail
-
-	for _, detail := range dto.Details {
-		productId := uuid.Must(uuid.Parse(detail.ProductId))
-		product, err := t.productRepo.GetProduct(ctx, productId)
-		if err != nil {
-			t.log.Error("failed to get product", zap.Error(err))
-			return fmt.Errorf("failed to get product")
-		}
-		if product == nil {
-			t.log.Error("product not found", zap.String("product_id", detail.ProductId))
-			return fmt.Errorf("product not found")
-		}
-
-		detailTrx = append(detailTrx, domain.TransactionsDetail{
-			ProductID: productId,
-			Price:     product.SellingPrice,
-			PriceDebt: product.SellingPriceDebt,
-			Qty:       detail.Qty,
-			Subtotal:  detail.Subtotal,
-		})
-
-	}
-
+	// 3. Tipe pembayaran (tunai/hutang/transfer/qris).
 	paymentType, err := enum.ParseMoneyPayment(dto.TypePayment)
 	if err != nil {
 		t.log.Error("failed to parse payment type", zap.Error(err))
-		return fmt.Errorf("failed to parse payment type")
+		return fmt.Errorf("invalid payment type")
 	}
 
-	data := &domain.Transactions{
-		NoInvoice:         dto.NoInvoice,
-		UserID:            uuid.Must(uuid.Parse(dto.UserId)),
-		CustomerID:        customerId,
-		DebtID:            nil,
-		PaymentType:       paymentType,
-		TotalTransaction:  dto.TotalTransaction,
-		TransactionDetail: detailTrx,
+	// 4. customer_id opsional, tetapi wajib & harus valid untuk pembayaran hutang.
+	var customerID *uuid.UUID
+	if dto.CustomerId != nil && *dto.CustomerId != "" {
+		parsed, err := uuid.Parse(*dto.CustomerId)
+		if err != nil {
+			t.log.Error("failed to parse customer id", zap.Error(err))
+			return fmt.Errorf("invalid customer id format")
+		}
+		customerID = &parsed
 	}
-
 	if paymentType.String() == "hutang" {
-		if customerId == nil {
-			t.log.Error("customer id is required for hutang")
+		if customerID == nil {
 			return fmt.Errorf("customer id is required for hutang")
 		}
-		customer, err := t.customerRepo.GetCustomer(ctx, *customerId)
+		customer, err := t.customerRepo.GetCustomer(ctx, *customerID)
 		if err != nil {
 			t.log.Error("failed to get customer", zap.Error(err))
 			return fmt.Errorf("failed to get customer")
 		}
 		if customer == nil {
-			t.log.Error("customer not found", zap.String("customer_id", *dto.CustomerId))
 			return fmt.Errorf("customer not found")
 		}
+	}
 
-		debtId, err := t.customerRepo.GetDebtIdByCustomerId(ctx, *customerId)
+	// 5. Bangun detail. Hanya ProductID & Qty yang dipakai dari client; harga &
+	//    subtotal diisi server di dalam transaksi (anti price-tampering).
+	if len(dto.Details) == 0 {
+		return fmt.Errorf("transaction details are required")
+	}
+	details := make([]domain.TransactionsDetail, 0, len(dto.Details))
+	for _, d := range dto.Details {
+		productID, err := uuid.Parse(d.ProductId)
 		if err != nil {
-			t.log.Error("failed to get debt id by customer id", zap.Error(err))
-			return fmt.Errorf("failed to get debt id by customer id")
+			t.log.Error("failed to parse product id", zap.Error(err))
+			return fmt.Errorf("invalid product id format")
 		}
-		if debtId == nil {
-			debt := &domain.Debts{
-				CustomerID: *customerId,
-				TotalDebt:  data.TotalTransaction,
-				Status:     enum.BELUM_LUNAS,
+		details = append(details, domain.TransactionsDetail{
+			ProductID: productID,
+			Qty:       d.Qty,
+		})
+	}
+
+	data := &domain.Transactions{
+		NoInvoice:         dto.NoInvoice,
+		UserID:            userID,
+		CustomerID:        customerID,
+		PaymentType:       paymentType,
+		TransactionDetail: details,
+	}
+
+	// 6. Tulis semuanya dalam satu transaksi database (atomik).
+	return t.txManager.Do(ctx, func(ctx context.Context) error {
+		var total float64
+
+		for i := range data.TransactionDetail {
+			detail := &data.TransactionDetail[i]
+
+			// Stok berupa bilangan bulat -> validasi qty dulu (tolak lebih awal).
+			qty := int(detail.Qty)
+			if float64(qty) != detail.Qty {
+				return fmt.Errorf("qty produk %s harus bilangan bulat", detail.ProductID)
 			}
-			err = t.debtRepo.AddDebt(ctx, debt)
+
+			// Kunci & kurangi stok dulu (menolak bila stok tidak cukup / produk
+			// tidak ada). Setelah baris terkunci, harga tidak bisa berubah oleh
+			// transaksi lain saat kita membacanya.
+			if err := t.productRepo.UpdateStockWithLock(ctx, detail.ProductID, -qty); err != nil {
+				t.log.Error("failed to reduce stock", zap.Error(err))
+				return err
+			}
+
+			// Baca harga dari produk yang sudah terkunci (anti price-tampering &
+			// anti perubahan harga di tengah transaksi).
+			product, err := t.productRepo.GetProduct(ctx, detail.ProductID)
 			if err != nil {
-				t.log.Error("failed to create debt", zap.Error(err))
-				return fmt.Errorf("failed to create debt")
+				t.log.Error("failed to get product", zap.Error(err))
+				return fmt.Errorf("product %s not found", detail.ProductID)
 			}
+			detail.Price = product.SellingPrice
+			detail.PriceDebt = product.SellingPriceDebt
+			detail.Subtotal = product.SellingPrice * detail.Qty
+			total += detail.Subtotal
 		}
-		if debtId != nil {
-			debt, err := t.debtRepo.GetDebtByID(ctx, *debtId)
+
+		// Total final dihitung server-side, nilai dari client diabaikan.
+		data.TotalTransaction = total
+
+		// Penjualan hutang: cek apakah customer sudah punya hutang.
+		//   - belum -> buat hutang baru (TotalDebt == RemainingDebt).
+		//   - sudah -> akumulasikan (TotalDebt & RemainingDebt sama-sama bertambah).
+		if paymentType.String() == "hutang" {
+			// Kunci customer dulu agar dua transaksi hutang bersamaan untuk
+			// customer yang sama tidak balapan membuat hutang ganda.
+			if err := t.customerRepo.LockCustomerForUpdate(ctx, *customerID); err != nil {
+				t.log.Error("failed to lock customer", zap.Error(err))
+				return fmt.Errorf("failed to process debt")
+			}
+
+			debtID, err := t.customerRepo.GetDebtIdByCustomerId(ctx, *customerID)
 			if err != nil {
-				t.log.Error("failed to get debt", zap.Error(err))
+				t.log.Error("failed to get debt id", zap.Error(err))
 				return fmt.Errorf("failed to get debt")
 			}
-			if debt == nil {
-				t.log.Error("debt not found", zap.String("debt_id", debtId.String()))
-				return fmt.Errorf("debt not found")
-			}
-			debt.TotalDebt += data.TotalTransaction
-			err = t.debtRepo.UpdateDebt(ctx, *debtId, debt)
-			if err != nil {
-				t.log.Error("failed to update debt", zap.Error(err))
-				return fmt.Errorf("failed to update debt")
+
+			if debtID == nil {
+				debt := &domain.Debts{
+					CustomerID:    *customerID,
+					TotalDebt:     total,
+					RemainingDebt: total,
+					Status:        enum.BELUM_LUNAS,
+				}
+				if err := t.debtRepo.AddDebt(ctx, debt); err != nil {
+					t.log.Error("failed to create debt", zap.Error(err))
+					return fmt.Errorf("failed to create debt")
+				}
+				data.DebtID = &debt.ID
+			} else {
+				debt, err := t.debtRepo.GetDebtByID(ctx, *debtID)
+				if err != nil {
+					t.log.Error("failed to get debt", zap.Error(err))
+					return fmt.Errorf("failed to get debt")
+				}
+				debt.TotalDebt += total
+				debt.RemainingDebt += total
+				debt.Status = enum.BELUM_LUNAS
+				if err := t.debtRepo.UpdateDebt(ctx, *debtID, debt); err != nil {
+					t.log.Error("failed to update debt", zap.Error(err))
+					return fmt.Errorf("failed to update debt")
+				}
+				data.DebtID = debtID
 			}
 		}
 
-	}
-
-	result := t.trxRepo.CreateTransaction(ctx, data)
-	if result != nil {
-		return fmt.Errorf("failed to create transaction: %w", result)
-	}
-
-	return nil
-
+		// Insert transaksi + detailnya.
+		if err := t.trxRepo.CreateTransaction(ctx, data); err != nil {
+			// Invoice kembar (race lolos dari pengecekan awal) -> pesan ramah.
+			if errors.Is(err, domain.ErrDuplicateInvoice) {
+				return fmt.Errorf("transaction with no invoice %s already exists", data.NoInvoice)
+			}
+			t.log.Error("failed to create transaction", zap.Error(err))
+			return fmt.Errorf("failed to create transaction")
+		}
+		return nil
+	})
 }
 
 // DeleteTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error {
-	productId := uuid.Must(uuid.Parse(dto.ID))
-	error := t.trxRepo.DeleteTransaction(ctx, productId)
+	// Parse aman: id tidak valid -> 400, bukan panic (uuid.Must akan panic).
+	trxID, err := uuid.Parse(dto.ID)
+	if err != nil {
+		t.log.Error("invalid transaction id", zap.Error(err))
+		return fmt.Errorf("invalid transaction id format")
+	}
 
-	if error != nil {
-		t.log.Error("transaction delete fail", zap.Error(error))
-		return error
+	if err := t.trxRepo.DeleteTransaction(ctx, trxID); err != nil {
+		t.log.Error("transaction delete fail", zap.Error(err))
+		return err
 	}
 
 	return nil
-
 }
 
 // GetAllTransaction implements [domain.TransactionUsecase].

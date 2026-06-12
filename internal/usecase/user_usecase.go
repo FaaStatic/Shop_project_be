@@ -120,9 +120,20 @@ func (u *userUsecase) UserLogin(ctx context.Context, userDto *requestdto.UserLog
 		ExpiresAt:    time.Now().Add(time.Duration(tokenPair.ExpiresIn) * time.Second),
 	}
 
-	if err := u.sessionRepo.CreateSession(ctx, session, sessionKey, time.Duration(tokenPair.ExpiresIn)*time.Second); err != nil {
+	ttl := time.Duration(tokenPair.ExpiresIn) * time.Second
+	if err := u.sessionRepo.CreateSession(ctx, session, sessionKey, ttl); err != nil {
 		u.log.Error("error save session", zap.Error(err))
 		return nil, fmt.Errorf("internal server error")
+	}
+
+	// Tandai user online (non-fatal: login tetap sukses bila penanda gagal).
+	online := domain.OnlineUser{
+		UserID:   user.ID.String(),
+		Username: user.Username,
+		Role:     roleUser.String(),
+	}
+	if err := u.sessionRepo.SetUserOnline(ctx, online, ttl); err != nil {
+		u.log.Warn("failed to mark user online", zap.Error(err))
 	}
 
 	return &responsedto.UserLoginResponse{
@@ -134,4 +145,30 @@ func (u *userUsecase) UserLogin(ctx context.Context, userDto *requestdto.UserLog
 		ExpiredTime:  int64(tokenPair.ExpiresIn),
 	}, nil
 
+}
+
+// Logout implements [domain.UserUsecase].
+// Menghapus session (access token) dari Redis dan penanda online user, sehingga
+// token tidak bisa dipakai lagi dan user tidak lagi terhitung online.
+func (u *userUsecase) Logout(ctx context.Context, accessToken, userID string) error {
+	sessionKey := "session:" + accessToken
+	if err := u.sessionRepo.DeleteSessionByAccessToken(ctx, sessionKey); err != nil {
+		u.log.Error("failed to delete session", zap.Error(err))
+		return fmt.Errorf("failed to logout")
+	}
+	// Hapus penanda online (non-fatal).
+	if err := u.sessionRepo.RemoveUserOnline(ctx, userID); err != nil {
+		u.log.Warn("failed to remove online marker", zap.Error(err))
+	}
+	return nil
+}
+
+// ListOnlineUsers implements [domain.UserUsecase].
+func (u *userUsecase) ListOnlineUsers(ctx context.Context) ([]domain.OnlineUser, error) {
+	users, err := u.sessionRepo.ListOnlineUsers(ctx)
+	if err != nil {
+		u.log.Error("failed to list online users", zap.Error(err))
+		return nil, fmt.Errorf("failed to get online users")
+	}
+	return users, nil
 }

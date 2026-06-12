@@ -7,6 +7,7 @@ import (
 	"shop_project_be/internal/delivery/http/middleware"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"go.uber.org/zap"
 )
 
@@ -21,11 +22,11 @@ type Handlers struct {
 
 // New membangun registrar route. Endpoint /auth bersifat publik; sisanya
 // berada di bawah grup /api yang dilindungi JWT.
-func New(h Handlers, jwtMw *middleware.JWTMiddleware, log *zap.Logger) func(router fiber.Router) {
+func New(h Handlers, jwtMw *middleware.JWTMiddleware, loginLimiterStore fiber.Storage, log *zap.Logger) func(router fiber.Router) {
 	return func(router fiber.Router) {
-		// Publik
+		// Publik. Login dibatasi rate limit untuk meredam brute force.
 		auth := router.Group("/auth")
-		auth.Post("/login", h.User.Login)
+		auth.Post("/login", limiter.New(middleware.GetLoginLimiter(loginLimiterStore)), h.User.Login)
 
 		// Terproteksi JWT
 		api := router.Group("/api", jwtMw.Auth(log))
@@ -34,6 +35,10 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, log *zap.Logger) func(rout
 		// Superadmin pertama dibuat lewat command CLI `create-admin`.
 		users := api.Group("/users")
 		users.Post("", jwtMw.RequireRole("superadmin"), h.User.Register)
+		// Logout boleh siapa saja yang sedang login.
+		users.Post("/logout", h.User.Logout)
+		// Daftar kasir online: hanya superadmin & admin (pemilik/pengawas toko).
+		users.Get("/online", jwtMw.RequireRole("superadmin", "admin"), h.User.OnlineUsers)
 
 		products := api.Group("/products")
 		products.Post("", h.Product.Add)

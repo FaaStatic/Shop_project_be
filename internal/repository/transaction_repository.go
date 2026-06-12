@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
+	"shop_project_be/pkg/dbtx"
 	"strings"
 	"time"
 
@@ -35,9 +36,19 @@ func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context,
 }
 
 // CreateTransaction implements [domain.TransactionRepository].
+//
+// Memakai dbtx.Conn agar ikut transaksi yang sedang berjalan bila dipanggil
+// dari dalam TxManager.Do (mis. saat penjualan: kurangi stok + catat hutang +
+// insert transaksi harus atomik). Omit asosiasi Product agar GORM tidak ikut
+// meng-upsert tabel master produk lewat detail.
 func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions) error {
-	result := t.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction)
+	result := dbtx.Conn(ctx, t.db).WithContext(ctx).Omit("TransactionDetail.Product").Create(transaction)
 	if result.Error != nil {
+		// no_invoice punya unique index. Bila kembar (mis. dua request invoice
+		// sama bersamaan), kembalikan error domain yang ramah, bukan error DB.
+		if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
+			return domain.ErrDuplicateInvoice
+		}
 		return fmt.Errorf("failed to add transaction: %w", result.Error)
 	}
 	return nil
