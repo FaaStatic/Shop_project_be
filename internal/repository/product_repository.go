@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
+	"shop_project_be/pkg/dbtx"
 	"sort"
 	"strings"
 
@@ -183,7 +184,9 @@ func (p *productRepository) GetAllProduct(ctx context.Context, filter domain.Fil
 // GetProduct implements [domain.ProductRepository].
 func (p *productRepository) GetProduct(ctx context.Context, id uuid.UUID) (*domain.Products, error) {
 	var item domain.Products
-	result := p.db.WithContext(ctx).Where("id = ?", id).First(&item)
+	// dbtx.Conn: ikut transaksi berjalan bila dipanggil dari dalam TxManager.Do
+	// (mis. saat penjualan butuh harga produk sebelum kurangi stok).
+	result := dbtx.Conn(ctx, p.db).WithContext(ctx).Where("id = ?", id).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("product with id %s not found: %w", id, result.Error)
@@ -241,7 +244,10 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 
 // UpdateStockWithLock implements [domain.ProductRepository].
 func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error {
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// dbtx.Conn: bila sudah berada dalam transaksi (penjualan), pemanggilan
+	// .Transaction di sini menjadi SAVEPOINT yang ikut commit/rollback transaksi
+	// luar -> stok hanya berkurang bila seluruh penjualan berhasil.
+	return dbtx.Conn(ctx, p.db).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var product domain.Products
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&product)
 		if result.Error != nil {

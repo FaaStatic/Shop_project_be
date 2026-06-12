@@ -25,6 +25,10 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 		Logger:                 gormlogger.Default.LogMode(gormLog.LogLevel),
 		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
+		// TranslateError menerjemahkan error driver menjadi error GORM yang
+		// generik (mis. unique violation -> gorm.ErrDuplicatedKey), sehingga
+		// repository bisa mendeteksinya tanpa bergantung pada kode error Postgres.
+		TranslateError: true,
 	})
 
 	if err != nil {

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"shop_project_be/internal/domain"
+	"shop_project_be/pkg/dbtx"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type customerRepository struct {
@@ -19,13 +21,44 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 }
 
 // GetDebtIdByCustomerId implements [domain.CustomerRepository].
+//
+// Mengembalikan id hutang milik customer, atau (nil, nil) bila customer belum
+// punya hutang. Sebelumnya memakai Pluck ke satu uuid sehingga saat tidak ada
+// baris ia tetap mengembalikan pointer ke uuid.Nil (tidak pernah nil) — itu
+// membuat alur "hutang baru vs nambah" salah. Sekarang pakai First + cek
+// ErrRecordNotFound. dbtx.Conn membuatnya ikut transaksi penjualan bila ada.
 func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error) {
-	var debtId uuid.UUID
-	result := c.db.WithContext(ctx).Where("customer_id = ?", customerId).Pluck("id", &debtId)
+	var debt domain.Debts
+	result := dbtx.Conn(ctx, c.db).WithContext(ctx).
+		Select("id").Where("customer_id = ?", customerId).First(&debt)
 	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
 	}
-	return &debtId, nil
+	return &debt.ID, nil
+}
+
+// LockCustomerForUpdate implements [domain.CustomerRepository].
+//
+// Mengunci baris customer (SELECT ... FOR UPDATE) di dalam transaksi berjalan.
+// Dipakai saat penjualan hutang: dengan mengunci customer-nya lebih dulu, dua
+// transaksi hutang bersamaan untuk customer yang sama akan ANTRE — sehingga
+// pengecekan "hutang baru vs nambah" tidak balapan dan tidak membuat baris
+// hutang ganda.
+func (c *customerRepository) LockCustomerForUpdate(ctx context.Context, id uuid.UUID) error {
+	var customer domain.Customers
+	result := dbtx.Conn(ctx, c.db).WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id").Where("id = ?", id).First(&customer)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("customer with id %s not found", id)
+		}
+		return fmt.Errorf("failed to lock customer: %w", result.Error)
+	}
+	return nil
 }
 
 // AddCustomer implements [domain.CustomerRepository].

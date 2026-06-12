@@ -7,6 +7,7 @@ import (
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
+	"shop_project_be/pkg/dbtx"
 	"strings"
 
 	"github.com/google/uuid"
@@ -24,7 +25,7 @@ func NewDebtRepository(db *gorm.DB) domain.DebtRepository {
 // GetDebtByID implements [domain.DebtRepository].
 func (d *debtRepository) GetDebtByID(ctx context.Context, id uuid.UUID) (*domain.Debts, error) {
 	var debt domain.Debts
-	result := d.db.Preload("Customer").Preload("Transactions").Preload("DebtPayments").Preload("DebtPayments.User").WithContext(ctx).Where("id = ?", id).First(&debt)
+	result := dbtx.Conn(ctx, d.db).Preload("Customer").Preload("Transactions").Preload("DebtPayments").Preload("DebtPayments.User").WithContext(ctx).Where("id = ?", id).First(&debt)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("debt with id %s not found: %w", id, result.Error)
@@ -36,7 +37,7 @@ func (d *debtRepository) GetDebtByID(ctx context.Context, id uuid.UUID) (*domain
 
 // UpdateDebt implements [domain.DebtRepository].
 func (d *debtRepository) UpdateDebt(ctx context.Context, id uuid.UUID, debt *domain.Debts) error {
-	result := d.db.WithContext(ctx).Model(&domain.Debts{}).Where("id = ?", id).Updates(debt)
+	result := dbtx.Conn(ctx, d.db).WithContext(ctx).Model(&domain.Debts{}).Where("id = ?", id).Updates(debt)
 	if result.Error != nil {
 		return fmt.Errorf("failed to update debt: %w", result.Error)
 	}
@@ -48,7 +49,7 @@ func (d *debtRepository) UpdateDebt(ctx context.Context, id uuid.UUID, debt *dom
 
 // AddDebt implements [domain.DebtRepository].
 func (d *debtRepository) AddDebt(ctx context.Context, debt *domain.Debts) error {
-	result := d.db.WithContext(ctx).Create(debt)
+	result := dbtx.Conn(ctx, d.db).WithContext(ctx).Create(debt)
 	if result.Error != nil {
 		return fmt.Errorf("failed to add debt: %w", result.Error)
 	}

@@ -52,4 +52,8 @@ type UserRepository interface {
 type UserUsecase interface {
 	UserLogin(ctx context.Context, userDto *requestdto.UserLoginRequest) (*responsedto.UserLoginResponse, error)
 	RegisterUser(ctx context.Context, userDto *requestdto.UserRegisterRequest) (*responsedto.UserRegisterResponse, error)
+	// Logout menghapus session & penanda online milik user.
+	Logout(ctx context.Context, accessToken, userID string) error
+	// ListOnlineUsers mengembalikan daftar user (kasir) yang sedang online.
+	ListOnlineUsers(ctx context.Context) ([]OnlineUser, error)
 }
