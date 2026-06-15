@@ -73,7 +73,7 @@ func (d *debtRepository) GetAllDebt(ctx context.Context, filter domain.FilterDeb
 		filter.Limit = 10
 	}
 
-	order := "ASC"
+	order := "DESC"
 	if strings.ToUpper(filter.Order) == "DESC" {
 		order = "DESC"
 	}

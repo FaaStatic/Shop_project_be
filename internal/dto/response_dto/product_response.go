@@ -14,7 +14,7 @@ type ProductDtoResponse struct {
 	PurchasePrice    float64   `json:"purchase_price"`
 	SellingPrice     float64   `json:"selling_price"`
 	SellingPriceDebt float64   `json:"selling_price_debt"`
-	Stock            int       `json:"stock"`
+	Stock            float64   `json:"stock"`
 	Category         string    `json:"category"`
 	Image            string    `json:"image"`
 	UpdatedAt        time.Time `json:"updated_at"`

@@ -22,7 +22,7 @@ type ProductRow struct {
 	PurchasePrice    float64
 	SellingPrice     float64
 	SellingPriceDebt float64
-	Stock            int
+	Stock            float64
 	Category         string
 	Image            string
 }
@@ -158,7 +158,7 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "selling_price_debt tidak valid"})
 			continue
 		}
-		if row.Stock, parseErr = parseInt(get("stock")); parseErr != nil {
+		if row.Stock, parseErr = parseFloat(get("stock")); parseErr != nil {
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "stock tidak valid"})
 			continue
 		}

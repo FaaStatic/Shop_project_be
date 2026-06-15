@@ -24,7 +24,7 @@ type AddProduct struct {
 	PurchasePrice    float64 `json:"purchase_price" validate:"required"`
 	SellingPrice     float64 `json:"selling_price" validate:"required"`
 	SellingPriceDebt float64 `json:"selling_price_debt" validate:"required"`
-	Stock            int     `json:"stock" validate:"required"`
+	Stock            float64 `json:"stock" validate:"required"`
 	Category         string  `json:"category" validate:"required"`
 	Image            string  `json:"image,omitempty"`
 }
@@ -53,8 +53,8 @@ type UpdateProduct struct {
 }
 
 type UpdateStock struct {
-	ID    string `json:"id" validate:"required"`
-	Stock int    `json:"stock,omitempty" validate:"required"`
+	ID    string  `json:"id" validate:"required"`
+	Stock float64 `json:"stock,omitempty" validate:"required"`
 }
 
 type GetAllProduct struct {

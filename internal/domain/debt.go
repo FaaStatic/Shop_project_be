@@ -38,6 +38,10 @@ type DebtPayments struct {
 	User *Users `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
+func (d *Debts) TableName() string {
+	return "debts"
+}
+
 func (d *DebtPayments) TableName() string {
 	return "debt_payments"
 }

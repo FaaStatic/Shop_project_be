@@ -8,17 +8,15 @@ import (
 type UserRole int
 
 const (
-	superadmin UserRole = iota
-	admin
-	staff
+	superadmin UserRole = iota // 0
+	_                          // 1: dulu admin, kini tidak dipakai (direservasi agar staff tetap 2)
+	staff                      // 2
 )
 
 func (typeUser UserRole) String() string {
 	switch typeUser {
 	case superadmin:
 		return "superadmin"
-	case admin:
-		return "admin"
 	case staff:
 		return "staff"
 	default:
@@ -30,8 +28,6 @@ func ParseUserRole(roleStr string) (UserRole, error) {
 	switch strings.ToLower(roleStr) {
 	case "superadmin":
 		return superadmin, nil
-	case "admin":
-		return admin, nil
 	case "staff":
 		return staff, nil
 	default:

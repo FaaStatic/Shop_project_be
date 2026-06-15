@@ -21,7 +21,8 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 // GetDebtIdByCustomerId implements [domain.CustomerRepository].
 func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error) {
 	var debtId uuid.UUID
-	result := c.db.WithContext(ctx).Where("customer_id = ?", customerId).Pluck("id", &debtId)
+	// WAJIB .Model(&domain.Debts{}): Pluck tanpa model akan error "table not set".
+	result := c.db.WithContext(ctx).Model(&domain.Debts{}).Where("customer_id = ?", customerId).Pluck("id", &debtId)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
 	}

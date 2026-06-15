@@ -20,17 +20,16 @@ func NewUserHandler(usecase domain.UserUsecase, log *zap.Logger) *UserHandler {
 
 // Register godoc
 //
-//	@Summary		Register user baru
-//	@Description	Membuat akun user baru. Hanya superadmin yang dapat mengakses endpoint ini.
-//	@Tags			Users
+//	@Summary		Register staff baru
+//	@Description	Pendaftaran akun staff (publik). Role selalu dipaksa ke "staff"; admin/superadmin dibuat langsung lewat DB.
+//	@Tags			Auth
 //	@Accept			json
 //	@Produce		json
-//	@Security		BearerAuth
-//	@Param			request	body		requestdto.UserRegisterRequest	true	"Data user baru"
+//	@Param			request	body		requestdto.UserRegisterRequest	true	"Data staff baru"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
-//	@Failure		401		{object}	response.APIResponse
-//	@Router			/api/users [post]
+//	@Failure		409		{object}	response.APIResponse
+//	@Router			/auth/register [post]
 func (h *UserHandler) Register(c fiber.Ctx) error {
 	var req requestdto.UserRegisterRequest
 	if err := bindBody(c, &req); err != nil {

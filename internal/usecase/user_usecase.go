@@ -48,14 +48,8 @@ func (u *userUsecase) RegisterUser(ctx context.Context, userDto *requestdto.User
 		}, fmt.Errorf("user already exists")
 	}
 
-	roleEnum, err := enum.ParseUserRole(userDto.Role)
-	if err != nil {
-		u.log.Error("Error Parsing Role", zap.Error(err))
-		return &responsedto.UserRegisterResponse{
-			Message: "role invalid",
-			Status:  400,
-		}, fmt.Errorf("role invalid")
-	}
+	// Register publik hanya untuk staff; admin/superadmin dibuat langsung lewat DB.
+	roleEnum, _ := enum.ParseUserRole("staff")
 
 	user := &domain.Users{
 		Username: userDto.Username,

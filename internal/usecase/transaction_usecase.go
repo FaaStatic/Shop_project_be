@@ -50,7 +50,12 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 		return fmt.Errorf("transaction with no invoice %s already exists", dto.NoInvoice)
 	}
 
-	userId := uuid.Must(uuid.Parse(dto.UserId))
+	userId, err := uuid.Parse(dto.UserId)
+	if err != nil {
+		t.log.Error("failed to parse user id", zap.Error(err))
+		return fmt.Errorf("invalid user id format")
+	}
+
 	user, err := t.userRepo.GetUserById(ctx, userId)
 	if err != nil {
 		t.log.Error("failed to get user", zap.Error(err))
@@ -71,10 +76,23 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 		customerId = &parsedID
 	}
 
-	var detailTrx []domain.TransactionsDetail
+	paymentType, err := enum.ParseMoneyPayment(dto.TypePayment)
+	if err != nil {
+		t.log.Error("failed to parse payment type", zap.Error(err))
+		return fmt.Errorf("failed to parse payment type")
+	}
+	isHutang := paymentType.String() == "hutang"
 
+	// Hitung subtotal & total di sisi server; jangan percaya nilai dari client.
+	// Harga hutang (SellingPriceDebt) dipakai bila pembayaran berupa hutang.
+	var detailTrx []domain.TransactionsDetail
+	var total float64
 	for _, detail := range dto.Details {
-		productId := uuid.Must(uuid.Parse(detail.ProductId))
+		productId, err := uuid.Parse(detail.ProductId)
+		if err != nil {
+			t.log.Error("failed to parse product id", zap.Error(err))
+			return fmt.Errorf("invalid product id format")
+		}
 		product, err := t.productRepo.GetProduct(ctx, productId)
 		if err != nil {
 			t.log.Error("failed to get product", zap.Error(err))
@@ -85,33 +103,24 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 			return fmt.Errorf("product not found")
 		}
 
+		unitPrice := product.SellingPrice
+		if isHutang {
+			unitPrice = product.SellingPriceDebt
+		}
+		subtotal := unitPrice * detail.Qty
+		total += subtotal
+
 		detailTrx = append(detailTrx, domain.TransactionsDetail{
 			ProductID: productId,
-			Price:     product.SellingPrice,
+			Price:     unitPrice,
 			PriceDebt: product.SellingPriceDebt,
 			Qty:       detail.Qty,
-			Subtotal:  detail.Subtotal,
+			Subtotal:  subtotal,
 		})
-
 	}
 
-	paymentType, err := enum.ParseMoneyPayment(dto.TypePayment)
-	if err != nil {
-		t.log.Error("failed to parse payment type", zap.Error(err))
-		return fmt.Errorf("failed to parse payment type")
-	}
-
-	data := &domain.Transactions{
-		NoInvoice:         dto.NoInvoice,
-		UserID:            uuid.Must(uuid.Parse(dto.UserId)),
-		CustomerID:        customerId,
-		DebtID:            nil,
-		PaymentType:       paymentType,
-		TotalTransaction:  dto.TotalTransaction,
-		TransactionDetail: detailTrx,
-	}
-
-	if paymentType.String() == "hutang" {
+	// Hutang wajib punya pelanggan yang valid (validasi sebelum menulis).
+	if isHutang {
 		if customerId == nil {
 			t.log.Error("customer id is required for hutang")
 			return fmt.Errorf("customer id is required for hutang")
@@ -125,65 +134,42 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 			t.log.Error("customer not found", zap.String("customer_id", *dto.CustomerId))
 			return fmt.Errorf("customer not found")
 		}
-
-		debtId, err := t.customerRepo.GetDebtIdByCustomerId(ctx, *customerId)
-		if err != nil {
-			t.log.Error("failed to get debt id by customer id", zap.Error(err))
-			return fmt.Errorf("failed to get debt id by customer id")
-		}
-		if debtId == nil {
-			debt := &domain.Debts{
-				CustomerID: *customerId,
-				TotalDebt:  data.TotalTransaction,
-				Status:     enum.BELUM_LUNAS,
-			}
-			err = t.debtRepo.AddDebt(ctx, debt)
-			if err != nil {
-				t.log.Error("failed to create debt", zap.Error(err))
-				return fmt.Errorf("failed to create debt")
-			}
-		}
-		if debtId != nil {
-			debt, err := t.debtRepo.GetDebtByID(ctx, *debtId)
-			if err != nil {
-				t.log.Error("failed to get debt", zap.Error(err))
-				return fmt.Errorf("failed to get debt")
-			}
-			if debt == nil {
-				t.log.Error("debt not found", zap.String("debt_id", debtId.String()))
-				return fmt.Errorf("debt not found")
-			}
-			debt.TotalDebt += data.TotalTransaction
-			err = t.debtRepo.UpdateDebt(ctx, *debtId, debt)
-			if err != nil {
-				t.log.Error("failed to update debt", zap.Error(err))
-				return fmt.Errorf("failed to update debt")
-			}
-		}
-
 	}
 
-	result := t.trxRepo.CreateTransaction(ctx, data)
-	if result != nil {
-		return fmt.Errorf("failed to create transaction: %w", result)
+	data := &domain.Transactions{
+		NoInvoice:         dto.NoInvoice,
+		UserID:            userId,
+		CustomerID:        customerId,
+		PaymentType:       paymentType,
+		TotalTransaction:  total,
+		TransactionDetail: detailTrx,
+	}
+
+	// Stok berkurang, hutang ter-upsert, dan transaksi tersimpan dalam satu
+	// transaksi DB: semuanya berhasil atau dibatalkan bersama.
+	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang); err != nil {
+		t.log.Error("failed to create transaction", zap.Error(err))
+		return err
 	}
 
 	return nil
-
 }
 
 // DeleteTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error {
-	productId := uuid.Must(uuid.Parse(dto.ID))
-	error := t.trxRepo.DeleteTransaction(ctx, productId)
-
-	if error != nil {
-		t.log.Error("transaction delete fail", zap.Error(error))
-		return error
+	trxId, err := uuid.Parse(dto.ID)
+	if err != nil {
+		t.log.Error("transaction id parse fail", zap.Error(err))
+		return fmt.Errorf("invalid transaction id format")
+	}
+	// Restore stok, balik saldo hutang, dan hapus transaksi dilakukan atomik
+	// di repository (semua dalam satu transaksi DB).
+	if err := t.trxRepo.DeleteTransaction(ctx, trxId); err != nil {
+		t.log.Error("transaction delete fail", zap.Error(err))
+		return err
 	}
 
 	return nil
-
 }
 
 // GetAllTransaction implements [domain.TransactionUsecase].
@@ -453,6 +439,7 @@ func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *re
 
 	items := make([]pdf.TransactionReportItem, 0, len(trx.TransactionDetail))
 	for _, d := range trx.TransactionDetail {
+
 		items = append(items, pdf.TransactionReportItem{
 			ProductName: d.Product.ProductName,
 			Qty:         d.Qty,

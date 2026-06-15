@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type transactionRepository struct {
@@ -23,7 +25,7 @@ func NewTransactionRepository(db *gorm.DB) domain.TransactionRepository {
 
 // CheckTransactionByNoInvoice implements [domain.TransactionRepository].
 func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context, noInvoice string) (*domain.Transactions, error) {
-	var item *domain.Transactions
+	var item domain.Transactions
 	result := t.db.WithContext(ctx).Where("no_invoice = ?", noInvoice).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -31,28 +33,150 @@ func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context,
 		}
 		return nil, fmt.Errorf("failed to get transaction: %w", result.Error)
 	}
-	return item, nil
+	return &item, nil
 }
 
-// CreateTransaction implements [domain.TransactionRepository].
-func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions) error {
-	result := t.db.WithContext(ctx).Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction)
-	if result.Error != nil {
-		return fmt.Errorf("failed to add transaction: %w", result.Error)
-	}
-	return nil
+// CreateTransactionAtomic implements [domain.TransactionRepository].
+// Mengurangi stok tiap produk (dengan row lock), meng-upsert hutang pelanggan
+// bila pembayaran hutang, lalu menyimpan transaksi — semuanya dalam satu
+// transaksi DB sehingga berhasil/dibatalkan bersama.
+func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool) error {
+	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Kurangi stok tiap produk dengan lock agar tidak balapan stok.
+		for _, d := range transaction.TransactionDetail {
+			var product domain.Products
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", d.ProductID).First(&product).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("product with id %s not found", d.ProductID)
+				}
+				return fmt.Errorf("failed to lock product: %w", err)
+			}
+			qty := d.Qty
+			if product.Stock < qty {
+				return fmt.Errorf("insufficient stock for product %s (current: %d, requested: %d)", d.ProductID, product.Stock, qty)
+			}
+			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
+				Update("stock", product.Stock-qty).Error; err != nil {
+				return fmt.Errorf("failed to update product stock: %w", err)
+			}
+		}
+
+		// 2. Untuk hutang: buat hutang baru atau tambah ke hutang pelanggan yang ada.
+		if isHutang && transaction.CustomerID != nil {
+			var debt domain.Debts
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("customer_id = ?", *transaction.CustomerID).First(&debt).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+
+				totalDebt := debt.TotalDebt + transaction.TotalTransaction
+				debt = domain.Debts{
+					CustomerID:    *transaction.CustomerID,
+					TotalDebt:     totalDebt,
+					RemainingDebt: debt.RemainingDebt,
+					Status:        enum.BELUM_LUNAS,
+				}
+				if err := tx.Create(&debt).Error; err != nil {
+					return fmt.Errorf("failed to create debt: %w", err)
+				}
+			case err != nil:
+				return fmt.Errorf("failed to get debt: %w", err)
+			default:
+				if err := tx.Model(&domain.Debts{}).Where("id = ?", debt.ID).
+					Updates(map[string]interface{}{
+						"total_debt":     debt.TotalDebt + transaction.TotalTransaction,
+						"remaining_debt": debt.RemainingDebt + transaction.TotalTransaction,
+						"status":         enum.BELUM_LUNAS,
+					}).Error; err != nil {
+					return fmt.Errorf("failed to update debt: %w", err)
+				}
+			}
+			transaction.DebtID = &debt.ID
+		}
+
+		// 3. Simpan transaksi beserta detailnya.
+		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction).Error; err != nil {
+			return fmt.Errorf("failed to create transaction: %w", err)
+		}
+		return nil
+	})
 }
 
 // DeleteTransaction implements [domain.TransactionRepository].
+// Mengembalikan stok tiap produk sebesar qty yang terjual, lalu menghapus
+// transaksinya — semuanya dalam satu transaksi DB sehingga konsisten.
 func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
-	result := t.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.Transactions{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete product: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("product with id %s not found", id)
-	}
-	return nil
+	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Ambil transaksi beserta detailnya (butuh product_id & qty per item).
+		var trx domain.Transactions
+		if err := tx.Preload("TransactionDetail").Where("id = ?", id).First(&trx).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("transaction with id %s not found", id)
+			}
+			return fmt.Errorf("failed to get transaction: %w", err)
+		}
+
+		// 2. Kembalikan stok tiap produk dengan row lock agar tidak balapan.
+		for _, d := range trx.TransactionDetail {
+			var product domain.Products
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", d.ProductID).First(&product).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("product with id %s not found", d.ProductID)
+				}
+				return fmt.Errorf("failed to lock product: %w", err)
+			}
+			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
+				Update("stock", product.Stock+d.Qty).Error; err != nil {
+				return fmt.Errorf("failed to restore product stock: %w", err)
+			}
+		}
+
+		// 3. Bila transaksi terhubung ke hutang, kurangi saldo hutang pelanggan
+		//    sebesar nilai transaksi ini (clamp di 0 agar tidak negatif).
+		if trx.DebtID != nil {
+			var debt domain.Debts
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", *trx.DebtID).First(&debt).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				// Hutang sudah tidak ada; tidak ada yang perlu dibalik.
+			case err != nil:
+				return fmt.Errorf("failed to lock debt: %w", err)
+			default:
+				newTotal := debt.TotalDebt - trx.TotalTransaction
+				if newTotal < 0 {
+					newTotal = 0
+				}
+				newRemaining := debt.RemainingDebt - trx.TotalTransaction
+				if newRemaining < 0 {
+					newRemaining = 0
+				}
+				status := enum.BELUM_LUNAS
+				if newRemaining <= 0 {
+					status = enum.LUNAS
+				}
+				if err := tx.Model(&domain.Debts{}).Where("id = ?", debt.ID).
+					Updates(map[string]interface{}{
+						"total_debt":     newTotal,
+						"remaining_debt": newRemaining,
+						"status":         status,
+					}).Error; err != nil {
+					return fmt.Errorf("failed to reverse debt: %w", err)
+				}
+			}
+		}
+
+		// 4. Hapus transaksinya (soft delete).
+		result := tx.Where("id = ?", id).Delete(&domain.Transactions{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete transaction: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("transaction with id %s not found", id)
+		}
+		return nil
+	})
 }
 
 // GetAllTransaction implements [domain.TransactionRepository].
@@ -61,7 +185,7 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 		filter.Limit = 10
 	}
 
-	order := "ASC"
+	order := "DESC"
 	if strings.ToUpper(filter.Order) == "DESC" {
 		order = "DESC"
 	}
@@ -212,7 +336,7 @@ func (t *transactionRepository) GetTransactionByID(ctx context.Context, id uuid.
 		Preload("TransactionDetail").Preload("TransactionDetail.Product").Where("id = ?", id).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("product with id %s not found: %w", id, result.Error)
+			return nil, fmt.Errorf("transaction with id %s not found: %w", id, result.Error)
 		}
 		return nil, fmt.Errorf("failed to get transaction: %w", result.Error)
 	}

@@ -29,7 +29,11 @@ func NewProductUsecase(productRepo domain.ProductRepository, log *zap.Logger) do
 
 // GetProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*domain.Products, error) {
-	productUid := uuid.MustParse(request.ID)
+	productUid, errUid := uuid.Parse(request.ID)
+	if errUid != nil {
+		p.log.Error("failed to parse product id", zap.Error(errUid))
+		return nil, fmt.Errorf("invalid product id format")
+	}
 	products, err := p.productRepo.GetProduct(ctx, productUid)
 	if err != nil {
 		p.log.Error("failed to get product", zap.Error(err))
@@ -138,7 +142,11 @@ func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *re
 
 // DeleteProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error {
-	id := uuid.MustParse(request.ID)
+	id, errId := uuid.Parse(request.ID)
+	if errId != nil {
+		p.log.Error("failed to delete product", zap.Error(errId))
+		return fmt.Errorf("failed to delete product")
+	}
 	err := p.productRepo.DeleteProduct(ctx, id)
 	if err != nil {
 		p.log.Error("failed to delete product", zap.Error(err))
@@ -205,7 +213,7 @@ func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request
 // Memperbarui atribut produk di bawah row-level lock agar perubahan bersamaan
 // tidak saling menimpa. Perubahan stok dilakukan via delta (atomik di dalam
 // lock); field stock pada DTO tidak dipakai di sini agar tak ada dua sumber.
-func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error {
+func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta float64) error {
 	id, err := uuid.Parse(request.ID)
 	if err != nil {
 		p.log.Error("failed to parse product id", zap.Error(err))
@@ -252,7 +260,7 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 // UpdateStockWithLock implements [domain.ProductUsecase].
 // Menambah/mengurangi stok produk sebesar delta secara atomik dengan row-level
 // lock (SELECT ... FOR UPDATE) di repository, sehingga aman dari race/deadlock.
-func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error {
+func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta float64) error {
 	id, err := uuid.Parse(request.ID)
 	if err != nil {
 		p.log.Error("failed to parse product id", zap.Error(err))

@@ -36,7 +36,6 @@ var serverRun = &cobra.Command{
 			loggerconfig.Logger.Fatal("gagal init redis", zap.Error(err))
 		}
 		defer redisClient.Close()
-
 		db, err := database.InitDB(envConf.DB, loggerconfig.Logger, env)
 		if err != nil {
 			loggerconfig.Logger.Fatal("gagal init database", zap.Error(err))
@@ -69,8 +68,9 @@ var serverRun = &cobra.Command{
 			Debt:        handler.NewDebtHandler(debtUC, loggerconfig.Logger),
 		}
 		jwtMw := middleware.NewJwtMiddleware(jwtService, sessionRepo)
+		storage := cache.NewLimiterStorage(&envConf.Redis)
 
-		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, route.New(handlers, jwtMw, loggerconfig.Logger))
+		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, storage, route.New(handlers, jwtMw, loggerconfig.Logger))
 
 		loggerconfig.Logger.Info("server starting",
 			zap.String("app", envConf.App.Name),

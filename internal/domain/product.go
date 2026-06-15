@@ -16,11 +16,11 @@ type Products struct {
 	ID               uuid.UUID        `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	SKU              string           `gorm:"type:varchar(50);uniqueIndex" json:"sku"`
 	ProductName      string           `gorm:"type:varchar(255);not null" json:"product_name"`
-	Unit             enum.ProductUnit `gorm:"type:smallint;check:unit IN (0,1,2,3,4);not null" json:"unit"`
+	Unit             enum.ProductUnit `gorm:"type:smallint;check:unit IN (0,1,2,3,4,5);not null" json:"unit"`
 	PurchasePrice    float64          `gorm:"type:decimal(15,2);not null" json:"purchase_price"`
 	SellingPrice     float64          `gorm:"type:decimal(15,2);not null" json:"selling_price"`
 	SellingPriceDebt float64          `gorm:"type:decimal(15,2);not null" json:"selling_price_debt"`
-	Stock            int              `gorm:"type:decimal(10,2);default:0" json:"stock"`
+	Stock            float64          `gorm:"type:decimal(10,2);default:0" json:"stock"`
 	Category         string           `gorm:"type:varchar(100);index" json:"category"`
 	Image            string           `gorm:"type:text" json:"image"`
 
@@ -60,8 +60,8 @@ type ProductRepository interface {
 	DeleteProduct(ctx context.Context, id uuid.UUID) error
 	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
 	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
-	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error
-	UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta int) error
+	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta float64) error
+	UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error
 }
 
 type ProductUsecase interface {
@@ -70,6 +70,6 @@ type ProductUsecase interface {
 	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
 	GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*Products, error)
 	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error)
-	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta int) error
-	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta int) error
+	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta float64) error
+	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta float64) error
 }

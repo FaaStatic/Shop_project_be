@@ -99,7 +99,7 @@ type DailyProductSoldReport struct {
 }
 
 type TransactionRepository interface {
-	CreateTransaction(ctx context.Context, transaction *Transactions) error
+	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool) error
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
 	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error

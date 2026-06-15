@@ -126,7 +126,7 @@ func (p *productRepository) GetAllProduct(ctx context.Context, filter domain.Fil
 	if filter.Limit <= 0 || filter.Limit > 100 {
 		filter.Limit = 10
 	}
-	order := "ASC"
+	order := "DESC"
 	if strings.ToUpper(filter.Order) == "DESC" {
 		order = "DESC"
 	}
@@ -209,7 +209,7 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 // Mengunci baris produk (SELECT ... FOR UPDATE) lalu menerapkan update parsial
 // dari fields. Bila stockDelta != 0, stok diubah secara atomik (current + delta)
 // di dalam lock yang sama -> mencegah lost-update saat ada perubahan bersamaan.
-func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta int) error {
+func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error {
 	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var product domain.Products
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -240,7 +240,7 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 }
 
 // UpdateStockWithLock implements [domain.ProductRepository].
-func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta int) error {
+func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta float64) error {
 	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var product domain.Products
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&product)

@@ -4,10 +4,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"os"
+	"strings"
 	"time"
 
 	envconfig "shop_project_be/config/env_config"
 	middleware "shop_project_be/internal/delivery/http/middleware"
+	"shop_project_be/pkg/response"
 	appvalidator "shop_project_be/pkg/validator"
 
 	"github.com/bytedance/sonic"
@@ -18,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/csrf"
 	"github.com/gofiber/fiber/v3/middleware/encryptcookie"
 	"github.com/gofiber/fiber/v3/middleware/helmet"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/static"
 	"go.uber.org/zap"
@@ -36,14 +39,23 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 		BodyLimit:       1024 * 1024 * 1024,
 		CaseSensitive:   true,
 		StrictRouting:   true,
+		ProxyHeader:     fiber.HeaderXForwardedFor,
+		TrustProxy:      true,
+		TrustProxyConfig: fiber.TrustProxyConfig{
+			Proxies: []string{"10.0.0.0/8"},
+			// Bila Nginx jalan di host yang sama (localhost), cukup:
+			Loopback: true,
+			// Bila proxy di jaringan privat (mis. docker network):
+			Private: true,
+		},
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
-			message := "something went wrong, please try again later"
+			message := "Something went wrong, please try again later"
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
 				message = e.Message
 			}
-			logger.Error("Aplikasi mengalami error atau panic",
+			logger.Error("Application is Crash",
 				zap.Error(err),
 				zap.Int("status_code", code),
 				zap.String("path", c.Path()),
@@ -99,7 +111,7 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 		BasePath:    "/",
 		FilePath:    "./swagger.json",
 		FileContent: loadSwaggerSpec(nameApp),
-		Path:        "swagger",
+		Path:        "/",
 		Title:       nameApp + " API documentation",
 		CacheAge:    3600,
 	}
@@ -108,7 +120,7 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 // InitFiber membangun aplikasi Fiber beserta middleware-nya.
 // routes adalah fungsi-fungsi pendaftar route aplikasi; semuanya didaftarkan
 // SEBELUM handler "not found" agar endpoint tetap terjangkau.
-func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, routes ...func(router fiber.Router)) *fiber.App {
+func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisClient fiber.Storage, routes ...func(router fiber.Router)) *fiber.App {
 	envConf, err := envconfig.InitEnvConfig(logger)
 	if err != nil {
 		logger.Fatal("Failed to initialize environment configuration", zap.Error(err))
@@ -121,6 +133,21 @@ func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, routes
 	app.Use(compress.New(middleware.GetCompressConfig()))
 	app.Use(cors.New(middleware.GetCorsConfig()))
 	app.Use(csrf.New(middleware.GetCSRFConfig()))
+	app.Use(limiter.New(limiter.Config{
+		Max:        5,
+		Expiration: 1 * time.Minute,
+		Storage:    redisClient,
+		LimitReached: func(c fiber.Ctx) error {
+			return response.Error(c, fiber.StatusTooManyRequests,
+				"too many request in Network please try again on 2 minutes!", nil)
+		},
+		KeyGenerator:      func(c fiber.Ctx) string { return c.IP() },
+		LimiterMiddleware: limiter.SlidingWindow{},
+		Next: func(c fiber.Ctx) bool {
+			p := c.Path()
+			return p == "/" || strings.HasPrefix(p, "/storage") // swagger UI di "/" + file statis
+		},
+	}))
 	if env == "production" {
 		app.Use(encryptcookie.New(middleware.GetSecureCookiesMiddleware(env, envData.Encrypt.Key)))
 	}

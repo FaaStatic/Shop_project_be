@@ -9,6 +9,7 @@ type ProductUnit int
 
 const (
 	pcs ProductUnit = iota
+	gram
 	kg
 	liter
 	kardus
@@ -19,6 +20,8 @@ func (typeItem ProductUnit) String() string {
 	switch typeItem {
 	case pcs:
 		return "pcs"
+	case gram:
+		return "gram"
 	case kg:
 		return "kg"
 	case liter:
