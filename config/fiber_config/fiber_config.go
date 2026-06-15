@@ -4,12 +4,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"os"
-	"strings"
 	"time"
 
 	envconfig "shop_project_be/config/env_config"
 	middleware "shop_project_be/internal/delivery/http/middleware"
-	"shop_project_be/pkg/response"
 	appvalidator "shop_project_be/pkg/validator"
 
 	"github.com/bytedance/sonic"
@@ -133,21 +131,7 @@ func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisC
 	app.Use(compress.New(middleware.GetCompressConfig()))
 	app.Use(cors.New(middleware.GetCorsConfig()))
 	app.Use(csrf.New(middleware.GetCSRFConfig()))
-	app.Use(limiter.New(limiter.Config{
-		Max:        5,
-		Expiration: 1 * time.Minute,
-		Storage:    redisClient,
-		LimitReached: func(c fiber.Ctx) error {
-			return response.Error(c, fiber.StatusTooManyRequests,
-				"too many request in Network please try again on 2 minutes!", nil)
-		},
-		KeyGenerator:      func(c fiber.Ctx) string { return c.IP() },
-		LimiterMiddleware: limiter.SlidingWindow{},
-		Next: func(c fiber.Ctx) bool {
-			p := c.Path()
-			return p == "/" || strings.HasPrefix(p, "/storage") // swagger UI di "/" + file statis
-		},
-	}))
+	app.Use(limiter.New(middleware.GetGlobalLimiter(redisClient)))
 	if env == "production" {
 		app.Use(encryptcookie.New(middleware.GetSecureCookiesMiddleware(env, envData.Encrypt.Key)))
 	}

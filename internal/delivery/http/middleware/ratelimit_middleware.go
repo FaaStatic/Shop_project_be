@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strings"
 	"time"
 
 	"shop_project_be/pkg/response"
@@ -18,14 +19,15 @@ import (
 func GetLoginLimiter(store fiber.Storage) limiter.Config {
 	return limiter.Config{
 		Max:        5,
-		Expiration: time.Minute,
+		Expiration: 2 * time.Minute,
 		Storage:    store,
 		KeyGenerator: func(c fiber.Ctx) string {
 			return c.IP()
 		},
+		LimiterMiddleware: limiter.SlidingWindow{},
 		LimitReached: func(c fiber.Ctx) error {
 			return response.Error(c, fiber.StatusTooManyRequests,
-				"terlalu banyak percobaan login, coba lagi sebentar", nil)
+				"Too many request in Network please try again on 2 minutes!", nil)
 		},
 	}
 }
@@ -35,7 +37,7 @@ func GetLoginLimiter(store fiber.Storage) limiter.Config {
 // bertabrakan.
 func GetGlobalLimiter(store fiber.Storage) limiter.Config {
 	return limiter.Config{
-		Max:        120,
+		Max:        50,
 		Expiration: time.Minute,
 		Storage:    store,
 		KeyGenerator: func(c fiber.Ctx) string {
@@ -43,7 +45,12 @@ func GetGlobalLimiter(store fiber.Storage) limiter.Config {
 		},
 		LimitReached: func(c fiber.Ctx) error {
 			return response.Error(c, fiber.StatusTooManyRequests,
-				"terlalu banyak request, coba lagi sebentar", nil)
+				"Too many request in Network please try again on 2 minutes!", nil)
+		},
+		LimiterMiddleware: limiter.SlidingWindow{},
+		Next: func(c fiber.Ctx) bool {
+			p := c.Path()
+			return p == "/" || strings.HasPrefix(p, "/storage") // swagger UI di "/" + file statis
 		},
 	}
 }

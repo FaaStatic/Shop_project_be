@@ -69,8 +69,7 @@ var serverRun = &cobra.Command{
 		}
 		jwtMw := middleware.NewJwtMiddleware(jwtService, sessionRepo)
 		storage := cache.NewLimiterStorage(&envConf.Redis)
-
-		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, storage, route.New(handlers, jwtMw, loggerconfig.Logger))
+		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, storage, route.New(handlers, jwtMw, storage, loggerconfig.Logger))
 
 		loggerconfig.Logger.Info("server starting",
 			zap.String("app", envConf.App.Name),

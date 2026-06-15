@@ -7,6 +7,7 @@ import (
 	"shop_project_be/internal/delivery/http/middleware"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
 	"go.uber.org/zap"
 )
 
@@ -21,13 +22,13 @@ type Handlers struct {
 
 // New membangun registrar route. Endpoint /auth bersifat publik; sisanya
 // berada di bawah grup /api yang dilindungi JWT.
-func New(h Handlers, jwtMw *middleware.JWTMiddleware, log *zap.Logger) func(router fiber.Router) {
+func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log *zap.Logger) func(router fiber.Router) {
 	return func(router fiber.Router) {
 		// Publik. Register hanya membuat akun staff; admin/superadmin
 		// dimasukkan langsung lewat DB.
 		auth := router.Group("/auth")
-		auth.Post("/login", h.User.Login)
-		auth.Post("/register", h.User.Register)
+		auth.Post("/login", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Login)
+		auth.Post("/register", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Register)
 
 		// Terproteksi JWT
 		api := router.Group("/api", jwtMw.Auth(log))
