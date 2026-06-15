@@ -54,7 +54,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 			}
 			qty := d.Qty
 			if product.Stock < qty {
-				return fmt.Errorf("insufficient stock for product %s (current: %d, requested: %d)", d.ProductID, product.Stock, qty)
+				return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", d.ProductID, product.Stock, qty)
 			}
 			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
 				Update("stock", product.Stock-qty).Error; err != nil {

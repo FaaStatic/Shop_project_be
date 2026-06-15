@@ -223,7 +223,7 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 		if stockDelta != 0 {
 			newStock := product.Stock + stockDelta
 			if newStock < 0 {
-				return fmt.Errorf("insufficient stock for product %s (current: %d, requested change: %d)", id, product.Stock, stockDelta)
+				return fmt.Errorf("insufficient stock for product %s (current: %v, requested change: %v)", id, product.Stock, stockDelta)
 			}
 			fields["stock"] = newStock
 		}
@@ -254,7 +254,7 @@ func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUI
 		newStock := product.Stock + delta
 
 		if newStock < 0 {
-			return fmt.Errorf("insufficient stock for product %s (current: %d, requested change: %d)", id, product.Stock, delta)
+			return fmt.Errorf("insufficient stock for product %s (current: %v, requested change: %v)", id, product.Stock, delta)
 		}
 
 		updateResult := tx.Model(&domain.Products{}).
