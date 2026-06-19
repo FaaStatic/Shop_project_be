@@ -10,6 +10,7 @@ import (
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"shop_project_be/pkg/pdf"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -174,35 +175,43 @@ func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *request
 
 // GetAllTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) ([]*responsedto.TransactionResponse, error) {
-	var afterTimeDate time.Time
-	var afterId uuid.UUID
+	// Cursor pagination opsional. Pada halaman pertama after_id/after_time belum
+	// ada, jadi parameter kosong/absen diperlakukan sebagai "tanpa cursor".
+	// Cursor dibiarkan nil agar repository tidak menerapkan filter created_at
+	// dengan zero-time (yang membuat halaman pertama kosong).
+	var afterId, afterTimeRaw string
+	if dto.AfterID != nil {
+		afterId = strings.TrimSpace(*dto.AfterID)
+	}
+	if dto.AfterTime != nil {
+		afterTimeRaw = strings.TrimSpace(*dto.AfterTime)
+	}
 
-	if dto.AfterTime != nil && dto.AfterID != nil {
-		parsedId, err := uuid.Parse(*dto.AfterID)
+	var cursor *paginated.CursorMeta
+	if afterId != "" && afterTimeRaw != "" {
+		parsedId, err := uuid.Parse(afterId)
 		if err != nil {
 			t.log.Error("failed to parse after_id", zap.Error(err))
 			return nil, fmt.Errorf("invalid after_id format")
 		}
-		afterId = parsedId
-
-		parsedTime, err := time.Parse(time.RFC3339, *dto.AfterTime)
+		parsedTime, err := time.Parse(time.RFC3339, afterTimeRaw)
 		if err != nil {
 			t.log.Error("failed to parse after_time", zap.Error(err))
 			return nil, fmt.Errorf("invalid after_time format")
 		}
-		afterTimeDate = parsedTime
+		cursor = &paginated.CursorMeta{
+			AfterTime: parsedTime,
+			AfterID:   parsedId,
+		}
 	}
 
 	filter := &domain.FilterTransaction{
 		NoInvoices: dto.InvoiceNumber,
-		Cursor: &paginated.CursorMeta{
-			AfterTime: afterTimeDate,
-			AfterID:   afterId,
-		},
-		DateStart: dto.DateStart,
-		DateEnd:   dto.DateEnd,
-		Limit:     10,
-		TypeTrx:   &dto.TypePayment,
+		Cursor:     cursor,
+		DateStart:  dto.DateStart,
+		DateEnd:    dto.DateEnd,
+		Limit:      10,
+		TypeTrx:    &dto.TypePayment,
 	}
 
 	result, err := t.trxRepo.GetAllTransaction(ctx, *filter)

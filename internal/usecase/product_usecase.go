@@ -9,6 +9,7 @@ import (
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"shop_project_be/pkg/sheet"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -159,16 +160,32 @@ func (p *productUsecase) DeleteProductShop(ctx context.Context, request *request
 // Mengambil daftar produk dengan dukungan pencarian, filter kategori, dan
 // cursor pagination (last_id + after_time dari hasil halaman sebelumnya).
 func (p *productUsecase) GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error) {
+	// Cursor pagination opsional. Pada halaman pertama frontend belum punya
+	// last_id/after_time, jadi parameter kosong/absen diperlakukan sebagai
+	// "tanpa cursor" (bukan error). Cursor hanya dipakai bila keduanya terisi.
+	var lastId, afterTimeRaw string
+	if request.LastId != nil {
+		lastId = strings.TrimSpace(*request.LastId)
+	}
+	if request.AfterTime != nil {
+		afterTimeRaw = strings.TrimSpace(*request.AfterTime)
+	}
+
 	var cursor *paginated.CursorMeta
-	if request.LastId != nil && request.AfterTime != nil {
-		afterTime, err := time.Parse(time.RFC3339, *request.AfterTime)
+	if lastId != "" && afterTimeRaw != "" {
+		afterTime, err := time.Parse(time.RFC3339, afterTimeRaw)
 		if err != nil {
 			p.log.Error("failed to parse after_time", zap.Error(err))
 			return nil, fmt.Errorf("invalid after_time format")
 		}
+		lastID, err := uuid.Parse(lastId)
+		if err != nil {
+			p.log.Error("failed to parse last_id", zap.Error(err))
+			return nil, fmt.Errorf("invalid last_id format")
+		}
 		cursor = &paginated.CursorMeta{
 			AfterTime: afterTime,
-			AfterID:   *request.LastId,
+			AfterID:   lastID,
 		}
 	}
 

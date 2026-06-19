@@ -7,7 +7,6 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
-	gormlogger "gorm.io/gorm/logger"
 
 	"gorm.io/gorm"
 )
@@ -17,12 +16,8 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 
 	gormLog := zaplogger.NewGormZapLogger(log)
 
-	if env == "production" {
-		gormLog = gormLog.LogMode(gormlogger.Error).(*zaplogger.GormZapLogger)
-	}
-
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger:                 gormlogger.Default.LogMode(gormLog.LogLevel),
+		Logger:                 gormLog,
 		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
 		// TranslateError menerjemahkan error driver menjadi error GORM yang

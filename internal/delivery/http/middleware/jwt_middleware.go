@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	zaplogger "shop_project_be/infrastructure/logger"
 	"shop_project_be/internal/domain"
 	"shop_project_be/pkg/jwt"
 	"shop_project_be/pkg/response"
@@ -31,7 +30,7 @@ func (m *JWTMiddleware) Auth(log *zap.Logger) fiber.Handler {
 		}
 		claims, err := m.jwtService.ValidateToken(token)
 		if err != nil {
-			zaplogger.Logger.Debug("token not valid", zap.Error(err))
+			log.Debug("token not valid", zap.Error(err))
 			return response.Error(c, fiber.StatusUnauthorized, "token not valid or expired", err)
 		}
 		if claims.Type != "access" {

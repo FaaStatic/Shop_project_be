@@ -2,8 +2,6 @@ package requestdto
 
 import (
 	"mime/multipart"
-
-	"github.com/google/uuid"
 )
 
 type SearchProduct struct {
@@ -58,13 +56,13 @@ type UpdateStock struct {
 }
 
 type GetAllProduct struct {
-	UserId    string     `json:"user_id" validate:"required"`
-	Category  string     `query:"category"`
-	Search    string     `query:"search"`
-	Page      int        `query:"page"`
-	Limit     int        `query:"limit"`
-	HasNext   bool       `query:"has_next"`
-	LastId    *uuid.UUID `query:"last_id"`
-	AfterTime *string    `query:"after_time"`
-	Order     string     `query:"order"`
+	UserId    string  `json:"user_id" validate:"required"`
+	Category  string  `query:"category"`
+	Search    string  `query:"search"`
+	Page      int     `query:"page"`
+	Limit     int     `query:"limit"`
+	HasNext   bool    `query:"has_next"`
+	LastId    *string `query:"last_id"`
+	AfterTime *string `query:"after_time"`
+	Order     string  `query:"order"`
 }

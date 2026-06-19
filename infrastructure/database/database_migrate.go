@@ -3,11 +3,13 @@ package database
 import (
 	"fmt"
 	envconfig "shop_project_be/config/env_config"
-	"shop_project_be/internal/domain"
 
 	"go.uber.org/zap"
 )
 
+// MigrateDB menerapkan migration versioned (goose) ke database. Skema tidak lagi
+// dikelola lewat GORM AutoMigrate; setiap perubahan struktur harus ditambahkan
+// sebagai file SQL baru di infrastructure/database/migrations.
 func MigrateDB(log *zap.Logger) error {
 	envConf, err := envconfig.InitEnvConfig(log)
 	if err != nil {
@@ -25,28 +27,10 @@ func MigrateDB(log *zap.Logger) error {
 	}
 	defer sqlDb.Close()
 
-	if err := db.Exec(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`).Error; err != nil {
-		log.Warn("gagal buat extension uuid-ossp", zap.Error(err))
+	if err := RunMigrations(sqlDb, log); err != nil {
+		return err
 	}
 
-	entities := []interface{}{
-		&domain.Users{},
-		&domain.Customers{},
-		&domain.Products{},
-		&domain.Debts{},
-		&domain.DebtPayments{},
-		&domain.Transactions{},
-		&domain.TransactionsDetail{},
-	}
-
-	if err := db.AutoMigrate(entities...); err != nil {
-		return fmt.Errorf("gagal migrate: %w", err)
-	}
-
-	log.Info("Migration Successfully", zap.Int("total_tabel", len(entities)))
-
-	log.Info("migrasi berhasil",
-		zap.Int("total_tabel", len(entities)),
-	)
+	log.Info("migrasi berhasil")
 	return nil
 }
