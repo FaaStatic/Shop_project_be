@@ -1,8 +1,8 @@
 package responsedto
 
 // ChargePaymentResponse is the response after a charge is successfully created. For
-// QRIS, Flutter shows QrUrl/QrString as a QR code. For cards, if
-// 3DS is needed, Flutter opens RedirectUrl in a webview. The final status must NOT
+// QRIS, Flutter shows QrUrl/QrString as a QR code. For VA (BCA/Mandiri), Flutter shows
+// VaNumber, or BillKey/BillerCode for Mandiri echannel. The final status must NOT
 // rely on this response alone — wait for the webhook/check status (see notes).
 type ChargePaymentResponse struct {
 	OrderID     string `json:"order_id"`     // = no_invoice

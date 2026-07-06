@@ -39,7 +39,7 @@ type TransactionsDetail struct {
 	PriceDebt     float64   `gorm:"type:decimal(15,2);not null" json:"price_debt"`
 	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
 	Subtotal      float64   `gorm:"type:decimal(15,2);not null" json:"subtotal"`
-	Destination *string `gorm:"type:varchar(50)" json:"destination,omitempty"` // phone/e-wallet account for digital products
+	Destination   *string   `gorm:"type:varchar(50)" json:"destination,omitempty"` // phone/e-wallet account for digital products
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 }
