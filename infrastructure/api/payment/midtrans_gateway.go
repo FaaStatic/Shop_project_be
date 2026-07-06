@@ -56,21 +56,28 @@ func (g *midtransGateway) ChargeQris(_ context.Context, in domain.GatewayChargeI
 	return mapChargeResponse(res), nil
 }
 
-// ChargeCard charges the card using a single-use token from the client. 3DS
-// is enabled (Authentication) for security; if needed, RedirectURL holds the
-// 3DS URL the client must open.
-func (g *midtransGateway) ChargeCard(_ context.Context, in domain.GatewayChargeInput) (*domain.GatewayChargeResult, error) {
+// ChargeVA creates a Virtual Account charge. BCA uses the bank_transfer flow
+// (a va_number is returned); Mandiri uses echannel (bill_key + biller_code).
+func (g *midtransGateway) ChargeVA(_ context.Context, in domain.GatewayChargeInput) (*domain.GatewayChargeResult, error) {
 	req := &coreapi.ChargeReq{
-		PaymentType: coreapi.PaymentTypeCreditCard,
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  in.OrderID,
 			GrossAmt: in.GrossAmount,
 		},
 		CustomerDetails: toCustomerDetails(in.Customer),
-		CreditCard: &coreapi.CreditCardDetails{
-			TokenID:        in.CardTokenID,
-			Authentication: in.Authentication,
-		},
+	}
+	switch strings.ToLower(in.Bank) {
+	case "bca":
+		req.PaymentType = coreapi.PaymentTypeBankTransfer
+		req.BankTransfer = &coreapi.BankTransferDetails{Bank: midtrans.BankBca}
+	case "mandiri":
+		req.PaymentType = coreapi.PaymentTypeEChannel
+		req.EChannel = &coreapi.EChannelDetail{
+			BillInfo1: "Payment",
+			BillInfo2: in.OrderID,
+		}
+	default:
+		return nil, errors.New("unsupported va bank")
 	}
 	if items := toItemDetails(in.Items); len(items) > 0 {
 		req.Items = &items
@@ -79,7 +86,11 @@ func (g *midtransGateway) ChargeCard(_ context.Context, in domain.GatewayChargeI
 	if mErr != nil {
 		return nil, errors.New(mErr.GetMessage())
 	}
-	return mapChargeResponse(res), nil
+	out := mapChargeResponse(res)
+	if out.Bank == "" {
+		out.Bank = strings.ToLower(in.Bank) // echannel has no va_numbers[].Bank
+	}
+	return out, nil
 }
 
 // CheckStatus fetches the authoritative transaction status from Midtrans. Used when
@@ -130,6 +141,14 @@ func mapChargeResponse(res *coreapi.ChargeResponse) *domain.GatewayChargeResult 
 			break
 		}
 	}
+	// Bank transfer (BCA/BNI/BRI...) exposes a va_numbers array.
+	if len(res.VaNumbers) > 0 {
+		out.VANumber = res.VaNumbers[0].VANumber
+		out.Bank = res.VaNumbers[0].Bank
+	}
+	// Mandiri echannel uses bill_key + biller_code instead of a VA number.
+	out.BillKey = res.BillKey
+	out.BillerCode = res.BillerCode
 	return out
 }
 
