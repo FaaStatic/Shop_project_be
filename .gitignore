@@ -22,3 +22,6 @@ dist/
 .claude
 shop_project_be
 *.json
+.superpowers
+.remember
+docs

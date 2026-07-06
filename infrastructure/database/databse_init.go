@@ -15,15 +15,15 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 	dsn := "host=" + config.Host + " user=" + config.User + " password=" + config.Password + " dbname=" + config.DBName + " port=" + config.Port + " sslmode=" + config.SSLMode + " TimeZone=" + config.TimeZone
 
 	gormLog := zaplogger.NewGormZapLogger(log)
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	usingPooler := false
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: usingPooler,
+	}), &gorm.Config{
 		Logger:                 gormLog,
-		PrepareStmt:            true,
+		PrepareStmt:            !usingPooler,
 		SkipDefaultTransaction: true,
-		// TranslateError translates driver errors into generic GORM errors
-		// (e.g. unique violation -> gorm.ErrDuplicatedKey), so
-		// the repository can detect them without relying on Postgres error codes.
-		TranslateError: true,
+		TranslateError:         true,
 	})
 
 	if err != nil {
