@@ -41,7 +41,7 @@ type Payment struct {
 	OrderID     string        `gorm:"type:varchar(50);uniqueIndex;not null" json:"order_id"`
 	UserID      uuid.UUID     `gorm:"type:uuid;not null" json:"user_id"`
 	CustomerID  *uuid.UUID    `gorm:"type:uuid" json:"customer_id,omitempty"`
-	Method      string        `gorm:"type:varchar(20);not null" json:"method"` // "qris" | "card"
+	Method      string        `gorm:"type:varchar(20);not null" json:"method"` // "qris" | "va"
 	GrossAmount float64       `gorm:"type:decimal(15,2);not null" json:"gross_amount"`
 	Status      PaymentStatus `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
 
@@ -52,6 +52,12 @@ type Payment struct {
 	QRString       string `gorm:"column:qr_string;type:text" json:"qr_string"`
 	QRURL          string `gorm:"column:qr_url;type:text" json:"qr_url"`
 	RedirectURL    string `gorm:"column:redirect_url;type:text" json:"redirect_url"`
+
+	// VA (Virtual Account) details, filled for method == "va".
+	VABank     string `gorm:"column:va_bank;type:varchar(20)" json:"va_bank,omitempty"`     // "bca"|"mandiri"
+	VANumber   string `gorm:"column:va_number;type:varchar(50)" json:"va_number,omitempty"` // BCA bank_transfer VA
+	BillKey    string `gorm:"column:bill_key;type:varchar(50)" json:"bill_key,omitempty"`   // Mandiri echannel
+	BillerCode string `gorm:"column:biller_code;type:varchar(20)" json:"biller_code,omitempty"`
 
 	Items         []PaymentItem `gorm:"serializer:json;type:jsonb" json:"items"`
 	ExpiryTime    *time.Time    `json:"expiry_time,omitempty"`
@@ -96,9 +102,8 @@ type GatewayChargeInput struct {
 	Items       []GatewayItem
 	Customer    GatewayCustomer
 
-	// Card-only: single-use token produced by tokenization on the client (Flutter).
-	CardTokenID    string
-	Authentication bool // enable 3DS
+	// VA-only: "bca" (bank_transfer) or "mandiri" (echannel).
+	Bank string
 }
 
 // GatewayChargeResult is the normalized charge/status result.
@@ -113,11 +118,16 @@ type GatewayChargeResult struct {
 	QRURL             string
 	RedirectURL       string
 	ExpiryTime        string
+
+	VANumber   string
+	Bank       string
+	BillKey    string
+	BillerCode string
 }
 
 type PaymentGateway interface {
 	ChargeQris(ctx context.Context, in GatewayChargeInput) (*GatewayChargeResult, error)
-	ChargeCard(ctx context.Context, in GatewayChargeInput) (*GatewayChargeResult, error)
+	ChargeVA(ctx context.Context, in GatewayChargeInput) (*GatewayChargeResult, error)
 	CheckStatus(ctx context.Context, orderID string) (*GatewayChargeResult, error)
 	// VerifySignature validates the Midtrans notification signature_key:
 	// SHA512(order_id + status_code + gross_amount + ServerKey).
