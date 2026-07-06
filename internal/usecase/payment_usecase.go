@@ -63,6 +63,7 @@ func (u *paymentUsecase) ChargeQris(ctx context.Context, request *requestdto.Cha
 	if err != nil {
 		return nil, err
 	}
+	gross = applyFee("qris", gross)
 
 	orderID, err := u.resolveOrderID(ctx, request.NoInvoice)
 	if err != nil {
@@ -91,9 +92,10 @@ func (u *paymentUsecase) ChargeQris(ctx context.Context, request *requestdto.Cha
 	return u.persistChargeResult(ctx, payment, result)
 }
 
-// ChargeCard charges the card using a single-use token from the client. If
-// 3DS is needed, the response holds a RedirectUrl that Flutter must open.
-func (u *paymentUsecase) ChargeCard(ctx context.Context, request *requestdto.ChargeCardRequest) (*responsedto.ChargePaymentResponse, error) {
+// ChargeVA creates a Virtual Account payment (BCA bank_transfer or Mandiri
+// echannel). The buyer pays the displayed VA number / bill; the final status
+// arrives via webhook (see HandleNotification).
+func (u *paymentUsecase) ChargeVA(ctx context.Context, request *requestdto.ChargeVARequest) (*responsedto.ChargePaymentResponse, error) {
 	userID, err := uuid.Parse(request.UserId)
 	if err != nil {
 		u.log.Error("failed to parse user id", zap.Error(err))
@@ -109,6 +111,7 @@ func (u *paymentUsecase) ChargeCard(ctx context.Context, request *requestdto.Cha
 	if err != nil {
 		return nil, err
 	}
+	gross = applyFee("va", gross)
 
 	orderID, err := u.resolveOrderID(ctx, request.NoInvoice)
 	if err != nil {
@@ -121,19 +124,18 @@ func (u *paymentUsecase) ChargeCard(ctx context.Context, request *requestdto.Cha
 		return nil, fmt.Errorf("insufficient stock")
 	}
 
-	result, err := u.gateway.ChargeCard(ctx, domain.GatewayChargeInput{
-		OrderID:        orderID,
-		GrossAmount:    gross,
-		CardTokenID:    request.TokenId,
-		Authentication: true, // require 3DS
+	result, err := u.gateway.ChargeVA(ctx, domain.GatewayChargeInput{
+		OrderID:     orderID,
+		GrossAmount: gross,
+		Bank:        request.Bank,
 	})
 	if err != nil {
-		u.releaseStock(ctx, items, orderID) // charge failed to create: return the reservation
-		u.log.Error("failed to charge card", zap.Error(err))
-		return nil, fmt.Errorf("failed to create card payment")
+		u.releaseStock(ctx, items, orderID)
+		u.log.Error("failed to charge va", zap.Error(err))
+		return nil, fmt.Errorf("failed to create va payment")
 	}
 
-	payment := u.newPayment(orderID, "card", userID, customerID, gross, items, result)
+	payment := u.newPayment(orderID, "va", userID, customerID, gross, items, result)
 	payment.StockReserved = true
 	return u.persistChargeResult(ctx, payment, result)
 }
@@ -372,6 +374,10 @@ func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domai
 		QrString:       payment.QRString,
 		QrUrl:          payment.QRURL,
 		RedirectUrl:    payment.RedirectURL,
+		VaNumber:       payment.VANumber,
+		Bank:           payment.VABank,
+		BillKey:        payment.BillKey,
+		BillerCode:     payment.BillerCode,
 		ExpiryTime:     result.ExpiryTime,
 	}, nil
 }
@@ -403,9 +409,15 @@ func (u *paymentUsecase) finalizeSuccess(ctx context.Context, payment *domain.Pa
 			s := payment.CustomerID.String()
 			customerID = &s
 		}
+		var bank *string
+		if payment.Method == "va" && payment.VABank != "" {
+			b := payment.VABank
+			bank = &b
+		}
 		addReq := &requestdto.AddTransactionRequest{
 			NoInvoice:   payment.OrderID,
 			TypePayment: methodToPaymentType(payment.Method),
+			Bank:        bank,
 			UserId:      payment.UserID.String(),
 			CustomerId:  customerID,
 			Details:     details,
@@ -516,6 +528,10 @@ func (u *paymentUsecase) newPayment(orderID, method string, userID uuid.UUID, cu
 		QRString:       result.QRString,
 		QRURL:          result.QRURL,
 		RedirectURL:    result.RedirectURL,
+		VABank:         result.Bank,
+		VANumber:       result.VANumber,
+		BillKey:        result.BillKey,
+		BillerCode:     result.BillerCode,
 		Items:          items,
 		ExpiryTime:     parseMidtransTime(result.ExpiryTime),
 	}
@@ -556,9 +572,31 @@ func parseOptionalUUID(s *string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+// Midtrans standard per-transaction fees, passed on to the buyer. Percentages
+// are rounded UP to the nearest rupiah so the merchant never absorbs a fraction.
+// Source: Midtrans pricing page (QRIS 0.7%, Virtual Account Rp4.000 flat).
+const (
+	feeQrisRate = 0.007
+	feeVAFlat   = 4000
+)
+
+// applyFee returns gross = subtotal + channel fee for online charges.
+func applyFee(method string, subtotal int64) int64 {
+	switch method {
+	case "qris":
+		return subtotal + int64(math.Ceil(float64(subtotal)*feeQrisRate))
+	case "va":
+		return subtotal + feeVAFlat
+	default:
+		return subtotal
+	}
+}
+
+// methodToPaymentType maps the online payment method to the internal POS
+// payment enum string. VA settles as a bank transfer; QRIS stays qris.
 func methodToPaymentType(method string) string {
-	if method == "card" {
-		return "kartu"
+	if method == "va" {
+		return "transfer"
 	}
 	return "qris"
 }
