@@ -19,7 +19,8 @@ type Transactions struct {
 	CustomerID *uuid.UUID `gorm:"column:customer_id" json:"customer_id"`
 	DebtID     *uuid.UUID `gorm:"column:debt_id;index" json:"debt_id"`
 
-	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3,4);not null" json:"payment_type"`
+	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
+	Bank             *string           `gorm:"type:varchar(20)" json:"bank,omitempty"` // "bca"|"mandiri", set only when PaymentType == transfer
 	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
@@ -38,6 +39,7 @@ type TransactionsDetail struct {
 	PriceDebt     float64   `gorm:"type:decimal(15,2);not null" json:"price_debt"`
 	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
 	Subtotal      float64   `gorm:"type:decimal(15,2);not null" json:"subtotal"`
+	Destination *string `gorm:"type:varchar(50)" json:"destination,omitempty"` // phone/e-wallet account for digital products
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 }

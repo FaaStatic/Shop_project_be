@@ -8,12 +8,14 @@ type AddTransactionRequest struct {
 	TotalTransaction float64                       `json:"total_price,omitempty"`
 	UserId           string                        `json:"user_id" validate:"required,uuid"`
 	CustomerId       *string                       `json:"customer_id,omitempty" validate:"omitempty,uuid"`
+	Bank             *string                       `json:"bank,omitempty" validate:"omitempty,oneof=bca mandiri"`
 	Details          []AddTransactionDetailRequest `json:"details" validate:"required,min=1,dive"`
 }
 
 type AddTransactionDetailRequest struct {
-	ProductId string  `json:"product_id" validate:"required,uuid"`
-	Qty       float64 `json:"qty" validate:"required,gt=0"`
+	ProductId   string  `json:"product_id" validate:"required,uuid"`
+	Qty         float64 `json:"qty" validate:"required,gt=0"`
+	Destination *string `json:"destination,omitempty"`
 	// Subtotal is ignored by the server (computed from product price × qty); left
 	// optional for backward compatibility with older payloads.
 	Subtotal float64 `json:"subtotal,omitempty"`

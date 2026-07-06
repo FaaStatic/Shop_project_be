@@ -19,6 +19,7 @@ type AddProduct struct {
 	SKU              string  `json:"sku" validate:"required"`
 	ProductName      string  `json:"product_name" validate:"required"`
 	Unit             int     `json:"unit,omitempty" validate:"omitempty,oneof=0 1 2 3 4"`
+	ProductType      int     `json:"product_type,omitempty" validate:"omitempty,oneof=0 1"`
 	PurchasePrice    float64 `json:"purchase_price" validate:"required"`
 	SellingPrice     float64 `json:"selling_price" validate:"required"`
 	SellingPriceDebt float64 `json:"selling_price_debt" validate:"required"`
@@ -42,6 +43,7 @@ type UpdateProduct struct {
 	SKU              *string  `json:"sku,omitempty"`
 	ProductName      *string  `json:"product_name,omitempty"`
 	Unit             *int     `json:"unit,omitempty" validate:"omitempty,oneof=0 1 2 3 4"`
+	ProductType      *int     `json:"product_type,omitempty" validate:"omitempty,oneof=0 1"`
 	PurchasePrice    *float64 `json:"purchase_price,omitempty" validate:"omitempty,gt=0"`
 	SellingPrice     *float64 `json:"selling_price,omitempty" validate:"omitempty,gt=0"`
 	SellingPriceDebt *float64 `json:"selling_price_debt,omitempty" validate:"omitempty,gte=0"`

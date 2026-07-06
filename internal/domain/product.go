@@ -17,6 +17,7 @@ type Products struct {
 	SKU              string           `gorm:"type:varchar(50);uniqueIndex" json:"sku"`
 	ProductName      string           `gorm:"type:varchar(255);not null" json:"product_name"`
 	Unit             enum.ProductUnit `gorm:"type:smallint;check:unit IN (0,1,2,3,4,5);not null" json:"unit"`
+	ProductType      enum.ProductType `gorm:"column:product_type;type:smallint;check:product_type IN (0,1);not null;default:0" json:"product_type"`
 	PurchasePrice    float64          `gorm:"type:decimal(15,2);not null" json:"purchase_price"`
 	SellingPrice     float64          `gorm:"type:decimal(15,2);not null" json:"selling_price"`
 	SellingPriceDebt float64          `gorm:"type:decimal(15,2);not null" json:"selling_price_debt"`
