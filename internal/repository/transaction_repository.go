@@ -66,6 +66,9 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 					}
 					return fmt.Errorf("failed to lock product: %w", err)
 				}
+				if product.ProductType.IsDigital() {
+					continue // digital goods are not stock-managed
+				}
 				qty := d.Qty
 				if product.Stock < qty {
 					return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", d.ProductID, product.Stock, qty)
@@ -149,6 +152,9 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 					return fmt.Errorf("product with id %s not found", d.ProductID)
 				}
 				return fmt.Errorf("failed to lock product: %w", err)
+			}
+			if product.ProductType.IsDigital() {
+				continue
 			}
 			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
 				Update("stock", product.Stock+d.Qty).Error; err != nil {
