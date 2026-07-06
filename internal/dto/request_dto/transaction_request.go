@@ -2,7 +2,7 @@ package requestdto
 
 type AddTransactionRequest struct {
 	NoInvoice   string `json:"no_invoice" validate:"required"`
-	TypePayment string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris kartu"`
+	TypePayment string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
 	// TotalTransaction is informational only; the final value is computed server-side from
 	// the product price (see usecase.AddTransaction) so it cannot be manipulated.
 	TotalTransaction float64                       `json:"total_price,omitempty"`
