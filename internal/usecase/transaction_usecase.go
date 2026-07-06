@@ -118,6 +118,16 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	}
 	isHutang := paymentType.String() == "hutang"
 
+	isTransfer := paymentType.String() == "transfer"
+	var bank *string
+	if isTransfer {
+		if dto.Bank == nil || (*dto.Bank != "bca" && *dto.Bank != "mandiri") {
+			t.log.Error("bank is required for transfer", zap.String("no_invoice", noInvoice))
+			return fmt.Errorf("bank (bca/mandiri) is required for transfer payment")
+		}
+		bank = dto.Bank
+	}
+
 	// Compute subtotal & total on the server; do not trust values from the client.
 	// The debt price (SellingPriceDebt) is used when the payment is a debt.
 	var detailTrx []domain.TransactionsDetail
@@ -139,18 +149,30 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		}
 
 		unitPrice := product.SellingPrice
-		if isHutang {
+		if isHutang && !product.ProductType.IsDigital() {
 			unitPrice = product.SellingPriceDebt
 		}
+
+		var destination *string
+		if product.ProductType.IsDigital() {
+			if detail.Destination == nil || strings.TrimSpace(*detail.Destination) == "" {
+				t.log.Error("destination required for digital product", zap.String("product_id", detail.ProductId))
+				return fmt.Errorf("destination is required for digital product %s", detail.ProductId)
+			}
+			d := strings.TrimSpace(*detail.Destination)
+			destination = &d
+		}
+
 		subtotal := unitPrice * detail.Qty
 		total += subtotal
 
 		detailTrx = append(detailTrx, domain.TransactionsDetail{
-			ProductID: productId,
-			Price:     unitPrice,
-			PriceDebt: product.SellingPriceDebt,
-			Qty:       detail.Qty,
-			Subtotal:  subtotal,
+			ProductID:   productId,
+			Price:       unitPrice,
+			PriceDebt:   product.SellingPriceDebt,
+			Qty:         detail.Qty,
+			Subtotal:    subtotal,
+			Destination: destination,
 		})
 	}
 
@@ -176,6 +198,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		UserID:            userId,
 		CustomerID:        customerId,
 		PaymentType:       paymentType,
+		Bank:              bank,
 		TotalTransaction:  total,
 		TransactionDetail: detailTrx,
 	}
