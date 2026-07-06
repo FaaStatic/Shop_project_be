@@ -21,7 +21,7 @@ Dua perubahan yang saling terkait:
 | Topik | Keputusan |
 |---|---|
 | Enum `MoneyPayment` | Pertahankan nomor lama: `tunai(0)`, `hutang(1)`, `transfer(2)`, `qris(3)`. **Buang `kartu(4)`.** `transfer` dipakai untuk VA. |
-| Bank VA di transaksi | Kolom `bank` terpisah di `transactions` (`bca`|`mandiri`), diisi hanya saat `payment_type = transfer`. |
+| Bank VA di transaksi | Kolom `bank` terpisah di `transactions` (`bca` / `mandiri`), diisi hanya saat `payment_type = transfer`. |
 | Produk digital | Katalog + nomor tujuan, fulfillment manual. Tidak potong stok. |
 | Channel online Midtrans | QRIS + VA(BCA, Mandiri). GoPay dibuang. |
 
@@ -110,8 +110,24 @@ Fungsi `applyFee(method string, subtotal int64) int64` di usecase, dihitung serv
 ### 2.4 DTO produk (`internal/dto/request_dto/product_request.go`)
 
 - `AddProduct`/`UpdateProduct`: tambah `ProductType *int validate:"omitempty,oneof=0 1"`.
-  Default `physical` bila kosong. Bulk import (`sheet.ParseProducts`) menerima kolom opsional
-  `product_type` (default physical) — ditangani di implementasi.
+  Default `physical` bila kosong.
+
+### 2.5 Bulk import produk (sadar `product_type`)
+
+Perubahan pada `product.go` (field `ProductType`) diikutkan ke seluruh jalur bulk import:
+
+- `pkg/sheet/product_sheet.go`: tambah field `ProductType string` (raw) di `ProductRow`,
+  dibaca via `get("product_type")`. Kolom **opsional** — file lama tanpa kolom ini tetap valid
+  dan default ke `physical`.
+- `product_usecase.AddBulkProductShopWithLock`: setelah dedupe SKU, parse `row.ProductType`
+  (kosong → `physical`; nilai tak dikenal → tambahkan ke `rowErrors` seperti unit invalid, baris
+  dilewati) dan set `ProductType` pada `domain.Products` yang dibangun.
+- `product_repository.AddBulkProduct`: kolom `product_type` ikut ter-insert lewat GORM (tidak ada
+  perubahan query karena `CreateInBatches` menuliskan seluruh field non-zero; `physical(0)` adalah
+  default kolom sehingga aman). Urutan lock/`ON CONFLICT (sku) DO NOTHING` tetap sama —
+  tidak ada perubahan perilaku konkurensi.
+- Produk digital yang di-import: `Stock` boleh 0 (diabaikan saat transaksi). Tidak ada perubahan
+  pada logika anti-deadlock (sort by SKU) maupun batasan `batchSize`.
 
 ## Bagian 3 — Migrasi Database (goose)
 
