@@ -267,6 +267,10 @@ func (p *productRepository) ReserveStock(ctx context.Context, items []domain.Pay
 				}
 				return fmt.Errorf("failed to lock product: %w", err)
 			}
+			if product.ProductType.IsDigital() {
+				// Digital goods (pulsa / e-wallet / data) are not stock-managed.
+				continue
+			}
 			if product.Stock < it.Qty {
 				return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", it.ProductID, product.Stock, it.Qty)
 			}
@@ -293,6 +297,16 @@ func (p *productRepository) RestoreStock(ctx context.Context, items []domain.Pay
 			return err
 		}
 		for _, it := range items {
+			var product domain.Products
+			if err := tx.Where("id = ?", it.ProductID).First(&product).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue // row gone; nothing to restore (matches prior lock-free behavior)
+				}
+				return fmt.Errorf("failed to load product for restore: %w", err)
+			}
+			if product.ProductType.IsDigital() {
+				continue
+			}
 			if err := tx.Model(&domain.Products{}).Where("id = ?", it.ProductID).
 				Update("stock", gorm.Expr("stock + ?", it.Qty)).Error; err != nil {
 				return fmt.Errorf("failed to restore stock: %w", err)
