@@ -16,15 +16,13 @@ type ChargeQrisRequest struct {
 	Items      []PaymentItemRequest `json:"items" validate:"required,min=1,dive"`
 }
 
-// ChargeCardRequest is used by Flutter for debit/credit card payments.
-// TokenId is a single-use token from card tokenization on the client side
-// (Midtrans Flutter SDK / MidtransNew3ds.getCardToken) — the server never
-// receives the raw card number.
-type ChargeCardRequest struct {
+// ChargeVARequest is used by Flutter for Virtual Account payments. Bank selects
+// the VA channel: "bca" (bank_transfer) or "mandiri" (echannel).
+type ChargeVARequest struct {
 	UserId     string               `json:"user_id" validate:"required,uuid"`
 	CustomerId *string              `json:"customer_id,omitempty" validate:"omitempty,uuid"`
 	NoInvoice  string               `json:"no_invoice,omitempty"`
-	TokenId    string               `json:"token_id" validate:"required"`
+	Bank       string               `json:"bank" validate:"required,oneof=bca mandiri"`
 	Items      []PaymentItemRequest `json:"items" validate:"required,min=1,dive"`
 }
 

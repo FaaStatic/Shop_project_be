@@ -50,21 +50,21 @@ func (h *PaymentHandler) ChargeQris(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusCreated, "qris payment created", res)
 }
 
-// ChargeCard godoc
+// ChargeVA godoc
 //
-//	@Summary		Create debit/credit card payment
-//	@Description	Creates a card charge via Midtrans using the token_id from client-side tokenization. If 3DS is needed, the response contains redirect_url.
+//	@Summary		Create Virtual Account payment
+//	@Description	Creates a VA charge via Midtrans. bank = "bca" (bank_transfer) or "mandiri" (echannel). Response contains va_number or bill_key/biller_code.
 //	@Tags			Payments
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.ChargeCardRequest	true	"Cart + card token"
+//	@Param			request	body		requestdto.ChargeVARequest	true	"VA payment cart"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/payments/card [post]
-func (h *PaymentHandler) ChargeCard(c fiber.Ctx) error {
-	var req requestdto.ChargeCardRequest
+//	@Router			/api/payments/va [post]
+func (h *PaymentHandler) ChargeVA(c fiber.Ctx) error {
+	var req requestdto.ChargeVARequest
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
@@ -72,11 +72,11 @@ func (h *PaymentHandler) ChargeCard(c fiber.Ctx) error {
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
-	res, err := h.usecase.ChargeCard(c.Context(), &req)
+	res, err := h.usecase.ChargeVA(c.Context(), &req)
 	if err != nil {
 		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
 	}
-	return response.Success(c, fiber.StatusCreated, "card payment created", res)
+	return response.Success(c, fiber.StatusCreated, "va payment created", res)
 }
 
 // Status godoc

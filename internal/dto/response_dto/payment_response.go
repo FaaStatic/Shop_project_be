@@ -6,7 +6,7 @@ package responsedto
 // rely on this response alone — wait for the webhook/check status (see notes).
 type ChargePaymentResponse struct {
 	OrderID     string `json:"order_id"`     // = no_invoice
-	Method      string `json:"method"`       // "qris" | "card"
+	Method      string `json:"method"`       // "qris" | "va"
 	Status      string `json:"status"`       // status internal: pending/success/failed/expired
 	GrossAmount int64  `json:"gross_amount"` // in rupiah (no decimals)
 
@@ -14,6 +14,10 @@ type ChargePaymentResponse struct {
 	QrString       string `json:"qr_string,omitempty"`    // payload QR (alternatif render manual)
 	QrUrl          string `json:"qr_url,omitempty"`       // URL gambar QR siap tampil (QRIS)
 	RedirectUrl    string `json:"redirect_url,omitempty"` // URL 3DS (kartu)
+	VaNumber       string `json:"va_number,omitempty"`    // BCA VA number
+	Bank           string `json:"bank,omitempty"`         // "bca"|"mandiri"
+	BillKey        string `json:"bill_key,omitempty"`     // Mandiri echannel
+	BillerCode     string `json:"biller_code,omitempty"`  // Mandiri echannel
 	ExpiryTime     string `json:"expiry_time,omitempty"`  // batas waktu bayar
 }
 

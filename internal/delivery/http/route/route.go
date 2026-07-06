@@ -62,7 +62,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 
 		payments := api.Group("/payments")
 		payments.Post("/qris", h.Payment.ChargeQris)
-		payments.Post("/card", h.Payment.ChargeCard)
+		payments.Post("/va", h.Payment.ChargeVA)
 		payments.Get("/:order_id/status", h.Payment.Status)
 
 		customers := api.Group("/customers")

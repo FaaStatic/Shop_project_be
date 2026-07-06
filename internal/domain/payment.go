@@ -151,7 +151,7 @@ type PaymentRepository interface {
 
 type PaymentUsecase interface {
 	ChargeQris(ctx context.Context, request *requestdto.ChargeQrisRequest) (*responsedto.ChargePaymentResponse, error)
-	ChargeCard(ctx context.Context, request *requestdto.ChargeCardRequest) (*responsedto.ChargePaymentResponse, error)
+	ChargeVA(ctx context.Context, request *requestdto.ChargeVARequest) (*responsedto.ChargePaymentResponse, error)
 	HandleNotification(ctx context.Context, notif *requestdto.MidtransNotificationRequest) error
 	// GetStatus returns the payment status. requesterID/requesterRole are used
 	// for the ownership check: besides admin/superadmin, only the order creator
