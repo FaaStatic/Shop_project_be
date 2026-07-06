@@ -13,7 +13,7 @@ type ChargePaymentResponse struct {
 	MidtransStatus string `json:"midtrans_status"`        // settlement/pending/capture/...
 	QrString       string `json:"qr_string,omitempty"`    // payload QR (alternatif render manual)
 	QrUrl          string `json:"qr_url,omitempty"`       // URL gambar QR siap tampil (QRIS)
-	RedirectUrl    string `json:"redirect_url,omitempty"` // URL 3DS (kartu)
+	RedirectUrl    string `json:"redirect_url,omitempty"` // URL redirect (tidak dipakai untuk QRIS/VA)
 	VaNumber       string `json:"va_number,omitempty"`    // BCA VA number
 	Bank           string `json:"bank,omitempty"`         // "bca"|"mandiri"
 	BillKey        string `json:"bill_key,omitempty"`     // Mandiri echannel

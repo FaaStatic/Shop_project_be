@@ -342,7 +342,7 @@ func (u *paymentUsecase) GetStatus(ctx context.Context, orderID, requesterID, re
 }
 
 // persistChargeResult saves the charged payment and, if the gateway already
-// succeeded immediately (e.g. card without 3DS), finalizes its transaction right away.
+// succeeded immediately (synchronous settlement), finalizes its transaction right away.
 func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domain.Payment, result *domain.GatewayChargeResult) (*responsedto.ChargePaymentResponse, error) {
 	if err := u.paymentRepo.Create(ctx, payment); err != nil {
 		if payment.StockReserved {
@@ -361,7 +361,7 @@ func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domai
 			u.log.Error("failed to update payment", zap.Error(err))
 			return nil, fmt.Errorf("failed to update payment")
 		}
-		// Kartu non-3DS bisa langsung settle tanpa webhook; kabari user di sini.
+		// Some gateway charges settle synchronously without a webhook follow-up; notify the user right away.
 		u.notifyPaymentResult(ctx, payment, true)
 	}
 
@@ -484,6 +484,13 @@ func (u *paymentUsecase) buildOrder(ctx context.Context, items []itemPair) (int6
 		}
 		if product == nil {
 			return 0, nil, fmt.Errorf("product %s not found", it.productID)
+		}
+		// Digital products need a per-line destination (see addTransaction), which
+		// the online cart/PaymentItem does not carry. Selling them online would
+		// capture money then fail finalization forever, so reject up front and keep
+		// digital sales on the manual POS /transactions path.
+		if product.ProductType.IsDigital() {
+			return 0, nil, fmt.Errorf("digital products cannot be purchased via online payment")
 		}
 		// Early check so the user is rejected before the order is created; the
 		// atomic check stays in ReserveStock (stock can change in between).
