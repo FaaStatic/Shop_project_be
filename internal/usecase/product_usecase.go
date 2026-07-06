@@ -84,10 +84,16 @@ func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request
 			rowErrors = append(rowErrors, sheet.RowError{Line: row.Line, Message: "invalid unit"})
 			continue
 		}
+		productType, err := enum.ParseProductType(row.ProductType)
+		if err != nil {
+			rowErrors = append(rowErrors, sheet.RowError{Line: row.Line, Message: "invalid product_type"})
+			continue
+		}
 		products = append(products, &domain.Products{
 			SKU:              row.SKU,
 			ProductName:      row.ProductName,
 			Unit:             unit,
+			ProductType:      productType,
 			PurchasePrice:    row.PurchasePrice,
 			SellingPrice:     row.SellingPrice,
 			SellingPriceDebt: row.SellingPriceDebt,
@@ -127,6 +133,7 @@ func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *re
 		SKU:              request.SKU,
 		ProductName:      request.ProductName,
 		Unit:             enum.ProductUnit(request.Unit),
+		ProductType:      enum.ProductType(request.ProductType),
 		PurchasePrice:    request.PurchasePrice,
 		SellingPrice:     request.SellingPrice,
 		SellingPriceDebt: request.SellingPriceDebt,

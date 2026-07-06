@@ -25,6 +25,7 @@ type ProductRow struct {
 	Stock            float64
 	Category         string
 	Image            string
+	ProductType      string // raw; parsed by the caller. Empty -> physical.
 }
 
 // RowError marks a row that failed to parse along with the reason.
@@ -134,6 +135,7 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 			Unit:        get("unit"),
 			Category:    get("category"),
 			Image:       get("image"),
+			ProductType: get("product_type"),
 		}
 
 		if row.SKU == "" {

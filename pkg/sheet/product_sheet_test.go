@@ -38,6 +38,25 @@ SKU-5,Gula 1kg,,10000,12000,12500,,sembako`
 	}
 }
 
+func TestParseProducts_ProductTypeColumn(t *testing.T) {
+	csvData := "sku,product_name,unit,purchase_price,selling_price,selling_price_debt,stock,category,product_type\n" +
+		"SKU-D,Pulsa 10k,pcs,10000,11000,11000,0,pulsa,digital\n" +
+		"SKU-P,Beras,kg,60000,65000,67000,10,sembako,\n"
+	rows, _, err := ParseProducts(strings.NewReader(csvData), "products.csv")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(rows))
+	}
+	if rows[0].ProductType != "digital" {
+		t.Fatalf("want digital, got %q", rows[0].ProductType)
+	}
+	if rows[1].ProductType != "" {
+		t.Fatalf("want empty (defaults later), got %q", rows[1].ProductType)
+	}
+}
+
 func TestParseProductsMissingHeader(t *testing.T) {
 	csvData := "sku,product_name,purchase_price\nSKU-1,Beras,60000"
 	_, _, err := ParseProducts(strings.NewReader(csvData), "p.csv")
