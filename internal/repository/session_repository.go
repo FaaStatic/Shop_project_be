@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// onlinePrefix adalah prefix key Redis untuk penanda user online.
+// onlinePrefix is the Redis key prefix for the online-user marker.
 const onlinePrefix = "online:"
 
 type sessionRepository struct {
@@ -20,8 +20,8 @@ func NewSessionRepository(rdb *redis.Client) domain.SessionRepository {
 	return &sessionRepository{rdb: rdb}
 }
 
-// SetUserOnline menandai user online. Key online:<userID> diberi TTL = masa
-// berlaku token, jadi otomatis kedaluwarsa bila user tidak logout.
+// SetUserOnline marks a user online. The online:<userID> key gets TTL = token
+// lifetime, so it expires automatically if the user does not log out.
 func (s *sessionRepository) SetUserOnline(ctx context.Context, user domain.OnlineUser, ttl time.Duration) error {
 	user.LastSeen = time.Now()
 	data, err := sonic.Marshal(user)
@@ -31,12 +31,12 @@ func (s *sessionRepository) SetUserOnline(ctx context.Context, user domain.Onlin
 	return s.rdb.Set(ctx, onlinePrefix+user.UserID, data, ttl).Err()
 }
 
-// RemoveUserOnline menghapus penanda online (dipakai saat logout).
+// RemoveUserOnline removes the online marker (used on logout).
 func (s *sessionRepository) RemoveUserOnline(ctx context.Context, userID string) error {
 	return s.rdb.Del(ctx, onlinePrefix+userID).Err()
 }
 
-// ListOnlineUsers mengumpulkan semua penanda online yang masih hidup di Redis.
+// ListOnlineUsers gathers all live online markers still present in Redis.
 func (s *sessionRepository) ListOnlineUsers(ctx context.Context) ([]domain.OnlineUser, error) {
 	users := make([]domain.OnlineUser, 0)
 
@@ -59,7 +59,7 @@ func (s *sessionRepository) ListOnlineUsers(ctx context.Context) ([]domain.Onlin
 	for _, v := range vals {
 		str, ok := v.(string)
 		if !ok {
-			continue // key kedaluwarsa di antara SCAN dan MGET
+			continue // key expired between SCAN and MGET
 		}
 		var u domain.OnlineUser
 		if err := sonic.Unmarshal([]byte(str), &u); err != nil {

@@ -21,13 +21,13 @@ func NewCustomerHandler(usecase domain.CustomerUsecase, log *zap.Logger) *Custom
 
 // Add godoc
 //
-//	@Summary		Tambah customer
-//	@Description	Menambahkan customer baru.
+//	@Summary		Add customer
+//	@Description	Adds a new customer.
 //	@Tags			Customers
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.AddCustomer	true	"Data customer"
+//	@Param			request	body		requestdto.AddCustomer	true	"Customer data"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -50,12 +50,12 @@ func (h *CustomerHandler) Add(c fiber.Ctx) error {
 // Update godoc
 //
 //	@Summary		Update customer
-//	@Description	Memperbarui data customer.
+//	@Description	Update customer data.
 //	@Tags			Customers
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.UpdateCustomer	true	"Data customer yang diperbarui"
+//	@Param			request	body		requestdto.UpdateCustomer	true	"Updated customer data"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -77,13 +77,13 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 
 // Delete godoc
 //
-//	@Summary		Hapus customer
-//	@Description	Menghapus customer berdasarkan ID.
+//	@Summary		Delete customer
+//	@Description	Deletes a customer by ID.
 //	@Tags			Customers
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteCustomer	true	"ID customer yang dihapus"
+//	@Param			request	body		requestdto.DeleteCustomer	true	"ID of the customer to delete"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -106,7 +106,7 @@ func (h *CustomerHandler) Delete(c fiber.Ctx) error {
 // Get godoc
 //
 //	@Summary		Detail customer
-//	@Description	Mengambil detail customer berdasarkan ID.
+//	@Description	Fetches customer details by ID.
 //	@Tags			Customers
 //	@Produce		json
 //	@Security		BearerAuth
@@ -130,13 +130,15 @@ func (h *CustomerHandler) Get(c fiber.Ctx) error {
 // List godoc
 //
 //	@Summary		List customer
-//	@Description	Mengambil daftar customer milik user yang login.
+//	@Description	Fetches the customer list belonging to the logged-in user.
 //	@Tags			Customers
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			page	query		int		false	"Halaman"
-//	@Param			limit	query		int		false	"Jumlah data per halaman"
-//	@Param			search	query		string	false	"Pencarian nama customer"
+//	@Param			limit		query		int		false	"Number of items per page"
+//	@Param			search		query		string	false	"Pencarian nama customer"
+//	@Param			order		query		string	false	"Sort: ASC or DESC (default DESC)"
+//	@Param			after_id	query		string	false	"Cursor: ID of the last row of the previous page"
+//	@Param			after_time	query		string	false	"Cursor: created_at of the last row (RFC3339Nano)"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse

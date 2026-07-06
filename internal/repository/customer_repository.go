@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -21,7 +23,7 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 // GetDebtIdByCustomerId implements [domain.CustomerRepository].
 func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error) {
 	var debtId uuid.UUID
-	// WAJIB .Model(&domain.Debts{}): Pluck tanpa model akan error "table not set".
+	// REQUIRED .Model(&domain.Debts{}): Pluck without a model errors with "table not set".
 	result := c.db.WithContext(ctx).Model(&domain.Debts{}).Where("customer_id = ?", customerId).Pluck("id", &debtId)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
@@ -67,27 +69,65 @@ func (c *customerRepository) GetCustomer(ctx context.Context, id uuid.UUID) (*[]
 }
 
 // GetAllCustomer implements [domain.CustomerRepository].
-// Mengambil daftar customer dengan pencarian nama (opsional) dan pagination
-// offset (limit + offset). Diurut dari yang terbaru.
-func (c *customerRepository) GetAllCustomer(ctx context.Context, search string, limit int, offset int) ([]*domain.Customers, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 10
+// Fetches the customer list with optional name search and cursor
+// pagination (created_at + id as tie-breaker). Fetch limit+1 rows to
+// detect whether there is a next page (has_next).
+func (c *customerRepository) GetAllCustomer(ctx context.Context, filter domain.FilterCustomer) (*domain.CustomersPaginated, error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 10
 	}
-	if offset < 0 {
-		offset = 0
+
+	order := "DESC"
+	if strings.ToUpper(filter.Order) == "ASC" {
+		order = "ASC"
 	}
 
 	query := c.db.WithContext(ctx).Model(&domain.Customers{})
-	if search != "" {
-		query = query.Where("name LIKE ?", "%"+search+"%")
+	if filter.Search != "" {
+		escaped := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(filter.Search)
+		query = query.Where("name LIKE ? ESCAPE '\\'", "%"+escaped+"%")
+	}
+
+	if filter.Cursor != nil {
+		if order == "ASC" {
+			query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)",
+				filter.Cursor.AfterTime,
+				filter.Cursor.AfterTime,
+				filter.Cursor.AfterID,
+			)
+		} else {
+			query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+				filter.Cursor.AfterTime,
+				filter.Cursor.AfterTime,
+				filter.Cursor.AfterID,
+			)
+		}
 	}
 
 	var items []*domain.Customers
-	result := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&items)
+	result := query.Order("created_at " + order + ", id " + order).Limit(filter.Limit + 1).Find(&items)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get customers: %w", result.Error)
 	}
-	return items, nil
+
+	hasNext := len(items) > filter.Limit
+	if hasNext {
+		items = items[:filter.Limit]
+	}
+	var nextCursor *paginated.CursorMeta
+	if hasNext && len(items) > 0 {
+		last := items[len(items)-1]
+		nextCursor = &paginated.CursorMeta{
+			AfterTime: last.CreatedAt,
+			AfterID:   last.ID,
+		}
+	}
+
+	return &domain.CustomersPaginated{
+		DataItem: items,
+		HasNext:  hasNext,
+		Cursor:   nextCursor,
+	}, nil
 }
 
 // UpdateCustomer implements [domain.CustomerRepository].

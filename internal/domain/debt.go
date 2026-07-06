@@ -57,7 +57,7 @@ type FilterDebt struct {
 	Limit      int                   `json:"limit"`
 	CustomerID uuid.UUID             `json:"customer_id"`
 	Order      string                `json:"order"`
-	Status     enum.DebtStatus       `json:"status"`
+	Status     *enum.DebtStatus      `json:"status"`
 	Search     string                `json:"search"`
 }
 
@@ -72,7 +72,7 @@ type DebtRepository interface {
 type DebtUseCase interface {
 	AddingDebtCustomer(ctx context.Context, request *requestdto.AddDebtRequest) error
 	DeleteDebtCustomer(ctx context.Context, request *requestdto.DeleteDebtRequest) error
-	GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*[]responsedto.DebtResponseDto, error)
+	GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListReponseDto, error)
 	GetDebtCustomer(ctx context.Context, request *requestdto.GetDebtRequest) (*responsedto.DebtResponseDto, error)
 	PrintReportDebtCustomer(ctx context.Context, request *requestdto.PrintDebtReport) (*responsedto.PrintDebtCustomerResponse, error)
 }

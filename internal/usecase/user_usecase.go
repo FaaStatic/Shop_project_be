@@ -11,7 +11,13 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// dummyPasswordHash is used by UserLogin to equalize compute time when the
+// username does not exist: bcrypt is still run so a user's existence does not
+// leak via timing differences. Generated once when the package loads.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("timing-equalizer-not-a-real-password"), bcrypt.DefaultCost)
 
 type userUsecase struct {
 	userRepo    domain.UserRepository
@@ -48,7 +54,7 @@ func (u *userUsecase) RegisterUser(ctx context.Context, userDto *requestdto.User
 		}, fmt.Errorf("user already exists")
 	}
 
-	// Register publik hanya untuk staff; admin/superadmin dibuat langsung lewat DB.
+	// Public register is staff-only; admin/superadmin are created directly via the DB.
 	roleEnum, _ := enum.ParseUserRole("staff")
 
 	user := &domain.Users{
@@ -87,12 +93,16 @@ func (u *userUsecase) UserLogin(ctx context.Context, userDto *requestdto.UserLog
 		return nil, fmt.Errorf("internal server error")
 	}
 	if user == nil {
+		// Run a dummy bcrypt so the duration matches the "user exists" path -> username
+		// existence does not leak via timing. The message is unified with the
+		// wrong-password case -> no enumeration via message content.
+		bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(userDto.Password))
 		u.log.Error("user not found", zap.Error(err))
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("username atau password salah")
 	}
 	if !user.ComparedPwd(userDto.Password) {
 		u.log.Error("wrong password", zap.Error(err))
-		return nil, fmt.Errorf("wrong password")
+		return nil, fmt.Errorf("username atau password salah")
 	}
 	roleUser, err := enum.ParseUserRole(user.Role.String())
 	if err != nil {

@@ -20,10 +20,12 @@ type DeleteCustomer struct {
 }
 
 type GetAllCustomer struct {
-	UserId string `json:"user_id" validate:"required"`
-	Page   int    `query:"page"`
-	Limit  int    `query:"limit"`
-	Search string `query:"search"`
+	UserId    string  `json:"user_id" validate:"required"`
+	Limit     int     `query:"limit"`
+	Search    string  `query:"search"`
+	Order     string  `query:"order"`
+	AfterID   *string `query:"after_id,omitempty"`
+	AfterTime *string `query:"after_time,omitempty"`
 }
 
 type GetCustomer struct {

@@ -11,10 +11,14 @@ type GetDebtRequest struct {
 }
 
 type FilterDebtRequest struct {
-	UserId     string `query:"user_id" validate:"required"`
-	CustomerId string `query:"customer_id"`
-	Month      string `query:"month"`
-	Year       string `query:"year"`
+	UserId     string  `query:"user_id" validate:"required"`
+	CustomerId string  `query:"customer_id"`
+	Month      string  `query:"month"`
+	Year       string  `query:"year"`
+	Limit      int     `query:"limit"`
+	Order      string  `query:"order"`
+	AfterID    *string `query:"after_id,omitempty"`
+	AfterTime  *string `query:"after_time,omitempty"`
 }
 
 type AddDebtRequest struct {

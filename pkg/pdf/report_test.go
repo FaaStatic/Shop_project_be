@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// TestMain mengarahkan output PDF saat test ke folder terpisah di root project
-// (storage/reports_test) agar tidak bercampur dengan output real (storage/reports).
+// TestMain points the PDF output during tests to a separate folder at the project root
+// (storage/reports_test) so it doesn't mix with the real output (storage/reports).
 func TestMain(m *testing.M) {
-	// Working directory test = folder paket (pkg/pdf), jadi root = ../../.
+	// Test working directory = package folder (pkg/pdf), so root = ../../.
 	reportDir = "../../storage/reports_test"
 	os.Exit(m.Run())
 }
@@ -102,9 +102,9 @@ func assertFileExists(t *testing.T, url string) {
 	path := filepath.Join(reportDir, filepath.Base(url))
 	info, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("file tidak ditemukan %s: %v", path, err)
+		t.Fatalf("file not found %s: %v", path, err)
 	}
 	if info.Size() == 0 {
-		t.Fatalf("file %s kosong", path)
+		t.Fatalf("file %s empty", path)
 	}
 }

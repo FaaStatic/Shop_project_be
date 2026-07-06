@@ -26,8 +26,11 @@ type TransactionResponse struct {
 }
 
 type GetAllTransactionResponse struct {
-	UserID          uuid.UUID                     `json:"user_id"`
-	TransactionList []*ProductTransactionResponse `json:"list_transaction"`
+	UserID          string                 `json:"user_id"`
+	AfterId         string                 `json:"after_id"`
+	AfterTime       string                 `json:"after_time"`
+	HasNext         bool                   `json:"has_next"`
+	TransactionList []*TransactionResponse `json:"list_transaction"`
 }
 
 type PrintReportTransactionResponse struct {

@@ -39,12 +39,12 @@ func NewJWTService(secret string, accessMin, refreshHour int) *JWTService {
 func (j *JWTService) GenerateTokenPair(userID, role string) (*TokenPair, error) {
 	accessToken, err := j.generateToken(userID, role, "access", j.accessTokenTTL)
 	if err != nil {
-		return nil, fmt.Errorf("gagal generate access token: %w", err)
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
 	refreshToken, err := j.generateToken(userID, role, "refresh", j.refreshTokenTTL)
 	if err != nil {
-		return nil, fmt.Errorf("gagal generate refresh token: %w", err)
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
 	return &TokenPair{
@@ -80,12 +80,12 @@ func (j *JWTService) ValidateToken(tokenStr string) (*Claims, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("token tidak valid: %w", err)
+		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, fmt.Errorf("claims tidak valid")
+		return nil, fmt.Errorf("invalid claims")
 	}
 
 	return claims, nil

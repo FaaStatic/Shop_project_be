@@ -9,3 +9,10 @@ type CustomerDtoResponse struct {
 	Alamat string            `json:"alamat"`
 	Debts  []DebtResponseDto `json:"debts,omitempty"`
 }
+
+type ListCustomerDtoResponse struct {
+	AfterId      string                `json:"after_id"`
+	AfterTime    string                `json:"after_time"`
+	HasNext      bool                  `json:"has_next"`
+	CustomerList []CustomerDtoResponse `json:"customer_lists"`
+}

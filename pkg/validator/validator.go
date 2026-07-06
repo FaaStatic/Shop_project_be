@@ -1,28 +1,28 @@
-// Package validator menyediakan implementasi fiber.StructValidator (Fiber v3)
-// berbasis go-playground/validator. Dengan mendaftarkannya pada fiber.Config,
-// tag `validate:"..."` pada DTO akan otomatis dievaluasi setiap kali handler
+// Package validator provides a fiber.StructValidator implementation (Fiber v3)
+// based on go-playground/validator. By registering it in fiber.Config,
+// the `validate:"..."` tag on DTOs is evaluated automatically whenever a handler
 // memanggil c.Bind().Body()/.Query()/.dst.
 package validator
 
 import "github.com/go-playground/validator/v10"
 
-// StructValidator membungkus *validator.Validate agar memenuhi interface
+// StructValidator wraps *validator.Validate to satisfy the
 // fiber.StructValidator: Validate(out any) error.
 type StructValidator struct {
 	validate *validator.Validate
 }
 
-// New membuat StructValidator siap pakai. Instance validator aman dipakai
-// bersamaan (concurrency-safe) dan meng-cache info struct, jadi cukup dibuat
-// sekali saat startup.
+// New builds a ready-to-use StructValidator. The validator instance is safe for
+// concurrent use (concurrency-safe) and caches struct info, so create it
+// once at startup.
 func New() *StructValidator {
 	return &StructValidator{
 		validate: validator.New(validator.WithRequiredStructEnabled()),
 	}
 }
 
-// Validate menjalankan validasi struct sesuai tag `validate` pada field.
-// out adalah pointer ke struct hasil binding Fiber.
+// Validate runs struct validation according to the `validate` tag on each field.
+// out is a pointer to the struct produced by Fiber binding.
 func (v *StructValidator) Validate(out any) error {
 	return v.validate.Struct(out)
 }

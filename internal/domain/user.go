@@ -13,11 +13,11 @@ import (
 )
 
 type Users struct {
-	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	Username     string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"username"`
-	Password     string         `gorm:"type:varchar(255);not null" json:"-"`
-	// Tanpa `default` agar GORM tidak men-skip role superadmin (nilai 0 = zero-value)
-	// saat INSERT lalu menggantinya dengan default DB. Role selalu diset di aplikasi.
+	ID       uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Username string    `gorm:"type:varchar(100);uniqueIndex;not null" json:"username"`
+	Password string    `gorm:"type:varchar(255);not null" json:"-"`
+	// Without `default` so GORM does not skip the superadmin role (value 0 = zero-value)
+	// on INSERT and replace it with the DB default. The role is always set in the app.
 	Role         enum.UserRole  `gorm:"type:smallint;check:role IN (0,2)" json:"role"`
 	Transactions []Transactions `gorm:"foreignKey:UserID" json:"transactions,omitempty"`
 	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`

@@ -1,6 +1,7 @@
 package fiberconfig
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"os"
@@ -34,16 +35,18 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 		ReadTimeout:     5 * time.Minute,
 		WriteTimeout:    5 * time.Minute,
 		IdleTimeout:     10 * time.Minute,
-		BodyLimit:       1024 * 1024 * 1024,
-		CaseSensitive:   true,
-		StrictRouting:   true,
-		ProxyHeader:     fiber.HeaderXForwardedFor,
-		TrustProxy:      true,
+		// 25 MB: enough for product CSV/Excel imports & normal JSON, but cuts
+		// the DoS/RAM vector (larger requests are rejected 413 before being fully buffered).
+		BodyLimit:     25 * 1024 * 1024,
+		CaseSensitive: true,
+		StrictRouting: true,
+		ProxyHeader:   fiber.HeaderXForwardedFor,
+		TrustProxy:    true,
 		TrustProxyConfig: fiber.TrustProxyConfig{
 			Proxies: []string{"10.0.0.0/8"},
-			// Bila Nginx jalan di host yang sama (localhost), cukup:
+			// If Nginx runs on the same host (localhost), this is enough:
 			Loopback: true,
-			// Bila proxy di jaringan privat (mis. docker network):
+			// If the proxy is on a private network (e.g. docker network):
 			Private: true,
 		},
 		ErrorHandler: func(c fiber.Ctx, err error) error {
@@ -70,17 +73,24 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 	}
 }
 
-func GetFiberConfigListener(env string) fiber.ListenConfig {
+// GetFiberConfigListener builds the listener configuration. gracefulCtx is used
+// by Fiber to start a graceful shutdown when the context is cancelled (e.g. SIGINT/
+// SIGTERM): the server stops accepting new connections then drains in-flight ones
+// up to ShutdownTimeout. This only touches the start/stop lifecycle — it does not
+// change any request processing or output.
+func GetFiberConfigListener(env string, gracefulCtx context.Context) fiber.ListenConfig {
 	return fiber.ListenConfig{
 		EnablePrefork:     true,
 		EnablePrintRoutes: env == "development",
 		TLSMinVersion:     tls.VersionTLS12,
+		GracefulContext:   gracefulCtx,
+		ShutdownTimeout:   10 * time.Second,
 	}
 }
 
-// loadSwaggerSpec membaca swagger.json hasil `make swagger` dan menimpa
-// info.title dengan nama aplikasi dari config yaml, supaya judul yang
-// tampil di Swagger UI ikut berubah jika server.name diganti.
+// loadSwaggerSpec reads the swagger.json produced by `make swagger` and overrides
+// info.title with the app name from the yaml config, so the title
+// shown in the Swagger UI also changes if server.name is changed.
 func loadSwaggerSpec(nameApp string) []byte {
 	raw, err := os.ReadFile("./swagger.json")
 	if err != nil {
@@ -115,15 +125,14 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 	}
 }
 
-// InitFiber membangun aplikasi Fiber beserta middleware-nya.
-// routes adalah fungsi-fungsi pendaftar route aplikasi; semuanya didaftarkan
-// SEBELUM handler "not found" agar endpoint tetap terjangkau.
+// InitFiber builds the Fiber application along with its middleware.
+// routes are the application's route-registrar functions; all are registered
+// BEFORE the "not found" handler so the endpoints remain reachable.
 func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisClient fiber.Storage, routes ...func(router fiber.Router)) *fiber.App {
-	envConf, err := envconfig.InitEnvConfig(logger)
-	if err != nil {
-		logger.Fatal("Failed to initialize environment configuration", zap.Error(err))
-	}
-	app := fiber.New(GetFiberConfig(logger, envConf.App.Name))
+	// Use the config already loaded & validated by the caller (envData); no
+	// need to re-read the config file here. The values are identical, so output
+	// is unchanged — it just removes one file read + duplicate validation.
+	app := fiber.New(GetFiberConfig(logger, envData.App.Name))
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
 	}))
@@ -137,16 +146,16 @@ func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisC
 	}
 	app.Use(middleware.LoggerMiddleware(logger))
 
-	// Serve file laporan PDF sebagai attachment agar langsung ter-download di client.
+	// Serve PDF report files as attachments so they download directly on the client.
 	app.Use("/storage/reports", static.New("./storage/reports", static.Config{Download: true}))
-	app.Use(swagger.New(GetSwaggerConfig(envConf.App.Name)))
+	app.Use(swagger.New(GetSwaggerConfig(envData.App.Name)))
 
-	// Daftarkan route aplikasi sebelum handler not-found.
+	// Register the application routes before the not-found handler.
 	for _, register := range routes {
 		register(app)
 	}
 
-	// Handler not-found harus paling akhir agar tidak menelan route lain.
+	// The not-found handler must be last so it does not swallow other routes.
 	app.Use(func(c fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Endpoint Not Found!",

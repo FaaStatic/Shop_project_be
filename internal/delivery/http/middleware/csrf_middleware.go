@@ -16,8 +16,8 @@ func GetCSRFConfig() csrf.Config {
 		CookieSameSite:    "Lax",
 		CookieSessionOnly: true,
 		Extractor:         extractors.FromHeader(csrf.HeaderName),
-		// API berbasis Bearer token (stateless) tidak rentan CSRF, jadi route
-		// /auth dan /api dilewati agar tidak butuh cookie+token CSRF.
+		// A Bearer-token-based (stateless) API is not vulnerable to CSRF, so the
+		// /auth and /api routes are skipped so they don't need a cookie+CSRF token.
 		Next: func(c fiber.Ctx) bool {
 			p := c.Path()
 			return strings.HasPrefix(p, "/auth") || strings.HasPrefix(p, "/api")

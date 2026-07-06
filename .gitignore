@@ -21,4 +21,4 @@ dist/
 .build/
 .claude
 shop_project_be
-swagger.json
+*.json

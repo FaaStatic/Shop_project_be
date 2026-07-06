@@ -60,8 +60,8 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 		}, nil
 	}
 
-	// Urutkan berdasarkan SKU agar setiap transaksi mengunci baris/index dalam
-	// urutan yang sama -> mencegah deadlock saat ada upload bersamaan.
+	// Sort by SKU so every transaction locks rows/indexes in
+	// the same order -> preventing deadlock during concurrent uploads.
 	sort.Slice(newProducts, func(i, j int) bool {
 		return newProducts[i].SKU < newProducts[j].SKU
 	})
@@ -69,8 +69,8 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 	const batchSize = 100
 	var inserted int64
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// ON CONFLICT (sku) DO NOTHING: aman bila ada SKU yang lolos pre-check
-		// namun sudah ditambahkan transaksi lain (race) atau soft-deleted.
+		// ON CONFLICT (sku) DO NOTHING: safe if a SKU passed the pre-check
+		// but was already added by another transaction (race) or soft-deleted.
 		result := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "sku"}},
 			DoNothing: true,
@@ -86,7 +86,7 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 		return nil, err
 	}
 
-	// Baris yang dilewati karena konflik SKU (race/soft-deleted) dihitung sebagai skipped.
+	// Rows skipped due to a SKU conflict (race/soft-deleted) are counted as skipped.
 	conflictSkipped := len(newProducts) - int(inserted)
 	if conflictSkipped < 0 {
 		conflictSkipped = 0
@@ -127,8 +127,8 @@ func (p *productRepository) GetAllProduct(ctx context.Context, filter domain.Fil
 		filter.Limit = 10
 	}
 	order := "DESC"
-	if strings.ToUpper(filter.Order) == "DESC" {
-		order = "DESC"
+	if strings.ToUpper(filter.Order) == "ASC" {
+		order = "ASC"
 	}
 
 	query := p.db.WithContext(ctx).Model(&domain.Products{})
@@ -138,7 +138,8 @@ func (p *productRepository) GetAllProduct(ctx context.Context, filter domain.Fil
 	}
 
 	if filter.Search != "" {
-		query = query.Where("product_name LIKE ?", "%"+filter.Search+"%")
+		escaped := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(filter.Search)
+		query = query.Where("product_name LIKE ? ESCAPE '\\'", "%"+escaped+"%")
 	}
 
 	if filter.Cursor != nil {
@@ -202,13 +203,16 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 	if result.Error != nil {
 		return fmt.Errorf("failed to update product: %w", result.Error)
 	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("product with id %s not found", id)
+	}
 	return nil
 }
 
 // UpdateProductWithLock implements [domain.ProductRepository].
-// Mengunci baris produk (SELECT ... FOR UPDATE) lalu menerapkan update parsial
-// dari fields. Bila stockDelta != 0, stok diubah secara atomik (current + delta)
-// di dalam lock yang sama -> mencegah lost-update saat ada perubahan bersamaan.
+// Locks the product row (SELECT ... FOR UPDATE) then applies a partial update
+// from fields. If stockDelta != 0, stock changes atomically (current + delta)
+// within the same lock -> preventing lost updates under concurrent changes.
 func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error {
 	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var product domain.Products
@@ -237,6 +241,91 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 		}
 		return nil
 	})
+}
+
+// ReserveStock implements [domain.ProductRepository]. All items are deducted
+// in one DB transaction with a per-product row lock: all succeed or
+// none at all (insufficient stock -> the whole reservation is aborted).
+func (p *productRepository) ReserveStock(ctx context.Context, items []domain.PaymentItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock all product rows up-front in a deterministic id order
+		// (ORDER BY id) so two concurrent reservations sharing products do not
+		// lock in crossing order -> preventing deadlock. The loop below stays in
+		// the original item order so validation & error messages are unchanged.
+		if err := lockProductsOrdered(tx, paymentItemIDs(items)); err != nil {
+			return err
+		}
+		for _, it := range items {
+			var product domain.Products
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ?", it.ProductID).First(&product).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("product with id %s not found", it.ProductID)
+				}
+				return fmt.Errorf("failed to lock product: %w", err)
+			}
+			if product.Stock < it.Qty {
+				return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", it.ProductID, product.Stock, it.Qty)
+			}
+			if err := tx.Model(&domain.Products{}).Where("id = ?", it.ProductID).
+				Update("stock", product.Stock-it.Qty).Error; err != nil {
+				return fmt.Errorf("failed to reserve stock: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// RestoreStock implements [domain.ProductRepository]. Returns stock
+// by the reserved amount without an upper-bound check (the exact inverse of ReserveStock).
+func (p *productRepository) RestoreStock(ctx context.Context, items []domain.PaymentItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock rows in a deterministic id order first so concurrent restores
+		// sharing products do not deadlock (missing rows are ignored,
+		// exactly as with the earlier lock-free UPDATE).
+		if err := lockProductsOrdered(tx, paymentItemIDs(items)); err != nil {
+			return err
+		}
+		for _, it := range items {
+			if err := tx.Model(&domain.Products{}).Where("id = ?", it.ProductID).
+				Update("stock", gorm.Expr("stock + ?", it.Qty)).Error; err != nil {
+				return fmt.Errorf("failed to restore stock: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// paymentItemIDs collects the product ids from a list of payment items.
+func paymentItemIDs(items []domain.PaymentItem) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(items))
+	for _, it := range items {
+		ids = append(ids, it.ProductID)
+	}
+	return ids
+}
+
+// lockProductsOrdered locks (SELECT ... FOR UPDATE) the product rows for ids
+// in a deterministic id order (ORDER BY id). Because all concurrent
+// transactions acquire locks in the same order, a wait-for cycle between
+// rows cannot form -> preventing deadlock. Rows that do not exist
+// are simply ignored; the caller handles "not found" via the per-item query.
+func lockProductsOrdered(tx *gorm.DB, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	var locked []domain.Products
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id IN ?", ids).Order("id").Find(&locked).Error; err != nil {
+		return fmt.Errorf("failed to lock products: %w", err)
+	}
+	return nil
 }
 
 // UpdateStockWithLock implements [domain.ProductRepository].

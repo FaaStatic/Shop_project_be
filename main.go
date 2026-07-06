@@ -2,14 +2,14 @@
 //
 //	@title			novi_shop API
 //	@version		1.0
-//	@description	REST API backend untuk aplikasi kasir/toko novi_shop.
+//	@description	REST API backend for the novi_shop cashier/store application.
 //	@host			localhost:3030
 //	@BasePath		/
 //
 //	@securityDefinitions.apikey	BearerAuth
 //	@in								header
 //	@name							Authorization
-//	@description					Masukkan token dengan format: Bearer {access_token}
+//	@description					Enter the token in the format: Bearer {access_token}
 package main
 
 import "shop_project_be/cmd"

@@ -12,7 +12,7 @@ import (
 	"github.com/go-pdf/fpdf"
 )
 
-// newDocument membuat dokumen PDF A4 dengan margin standar.
+// newDocument creates an A4 PDF document with standard margins.
 func newDocument() *fpdf.Fpdf {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(15, 15, 15)
@@ -20,14 +20,14 @@ func newDocument() *fpdf.Fpdf {
 	return pdf
 }
 
-// saveDocument menulis dokumen ke folder storage dan mengembalikan URL relatifnya.
+// saveDocument writes the document to the storage folder and returns its relative URL.
 func saveDocument(pdf *fpdf.Fpdf, filename string) (string, error) {
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
-		return "", fmt.Errorf("gagal membuat folder laporan: %w", err)
+		return "", fmt.Errorf("failed to create report folder: %w", err)
 	}
 	fullPath := filepath.Join(reportDir, filename)
 	if err := pdf.OutputFileAndClose(fullPath); err != nil {
-		return "", fmt.Errorf("gagal menyimpan file pdf: %w", err)
+		return "", fmt.Errorf("failed to save pdf file: %w", err)
 	}
 	return urlPrefix + "/" + filename, nil
 }
@@ -39,7 +39,7 @@ func drawLine(pdf *fpdf.Fpdf) {
 	pdf.Line(x, y, 195, y)
 }
 
-// drawDailyHeader menggambar baris header tabel rincian harian.
+// drawDailyHeader draws the header row of the daily breakdown table.
 func drawDailyHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -50,7 +50,7 @@ func drawDailyHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(45, 8, "Total", "1", 1, "R", true, 0, "")
 }
 
-// formatRupiah memformat angka menjadi string mata uang Rupiah, contoh: "Rp 1.250.000".
+// formatRupiah formats a number into a Rupiah currency string, e.g. "Rp 1.250.000".
 func formatRupiah(v float64) string {
 	n := int64(math.Round(v))
 	negative := n < 0
@@ -73,7 +73,7 @@ func formatRupiah(v float64) string {
 	return result
 }
 
-// formatQty memformat qty: tanpa desimal bila bulat, selain itu maksimal 2 desimal.
+// formatQty formats qty: no decimals if whole, otherwise up to 2 decimals.
 func formatQty(v float64) string {
 	if v == math.Trunc(v) {
 		return strconv.FormatInt(int64(v), 10)
@@ -81,7 +81,7 @@ func formatQty(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
 }
 
-// formatDateTime memformat waktu ke format Indonesia "02 Jan 2006 15:04".
+// formatDateTime formats time to the Indonesian format "02 Jan 2006 15:04".
 func formatDateTime(t time.Time) string {
 	if t.IsZero() {
 		t = time.Now()
@@ -90,7 +90,7 @@ func formatDateTime(t time.Time) string {
 		t.Day(), monthNameShortID(int(t.Month())), t.Year(), t.Hour(), t.Minute())
 }
 
-// drawProductHeader menggambar baris header tabel produk terjual.
+// drawProductHeader draws the header row of the products-sold table.
 func drawProductHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -99,7 +99,7 @@ func drawProductHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(45, 8, "Total", "1", 1, "R", true, 0, "")
 }
 
-// drawDebtPaymentHeader menggambar baris header tabel riwayat pembayaran hutang.
+// drawDebtPaymentHeader draws the header row of the debt payment history table.
 func drawDebtPaymentHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -108,12 +108,12 @@ func drawDebtPaymentHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(50, 8, "Nominal", "1", 1, "R", true, 0, "")
 }
 
-// formatDateOnly memformat tanggal ke format "02 Jan 2006".
+// formatDateOnly formats a date to "02 Jan 2006".
 func formatDateOnly(t time.Time) string {
 	return fmt.Sprintf("%02d %s %d", t.Day(), monthNameShortID(int(t.Month())), t.Year())
 }
 
-// truncate memotong string yang lebih panjang dari max dan menambahkan elipsis.
+// truncate cuts a string longer than max and appends an ellipsis.
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -124,7 +124,7 @@ func truncate(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-// sanitizeFilename mengganti karakter yang tidak aman untuk nama file.
+// sanitizeFilename replaces characters that are unsafe for a file name.
 func sanitizeFilename(s string) string {
 	replacer := strings.NewReplacer("/", "-", "\\", "-", " ", "_", ":", "-")
 	cleaned := replacer.Replace(strings.TrimSpace(s))
@@ -144,7 +144,7 @@ var monthNamesShortID = [...]string{
 	"Jul", "Agu", "Sep", "Okt", "Nov", "Des",
 }
 
-// monthNameID mengembalikan nama bulan Indonesia (1-12); selain itu string kosong.
+// monthNameID returns the Indonesian month name (1-12); otherwise an empty string.
 func monthNameID(month int) string {
 	if month < 1 || month > 12 {
 		return ""
@@ -159,7 +159,7 @@ func monthNameShortID(month int) string {
 	return monthNamesShortID[month-1]
 }
 
-// titleCase mengubah huruf pertama menjadi kapital, contoh: "tunai" -> "Tunai".
+// titleCase capitalizes the first letter, e.g. "tunai" -> "Tunai".
 func titleCase(s string) string {
 	if s == "" {
 		return ""

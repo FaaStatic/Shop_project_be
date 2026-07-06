@@ -37,32 +37,47 @@ func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context,
 }
 
 // CreateTransactionAtomic implements [domain.TransactionRepository].
-// Mengurangi stok tiap produk (dengan row lock), meng-upsert hutang pelanggan
-// bila pembayaran hutang, lalu menyimpan transaksi — semuanya dalam satu
-// transaksi DB sehingga berhasil/dibatalkan bersama.
-func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool) error {
+// Decrements each product's stock (with a row lock), upserts the customer's debt
+// if it's a debt payment, then saves the transaction — all in one
+// DB transaction so they succeed/roll back together.
+func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool, deductStock bool) error {
 	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. Kurangi stok tiap produk dengan lock agar tidak balapan stok.
-		for _, d := range transaction.TransactionDetail {
-			var product domain.Products
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("id = ?", d.ProductID).First(&product).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("product with id %s not found", d.ProductID)
+		// 1. Decrement each product's stock with a lock to avoid a stock race.
+		// deductStock is false for transactions from online payments: their stock
+		// was already deducted at charge reservation, don't deduct it twice.
+		if deductStock {
+			// Lock all products up-front in a deterministic id order so
+			// two concurrent sales of the same products (different item order)
+			// don't deadlock. The loop below stays in the original order -> error messages
+			// are unchanged.
+			ids := make([]uuid.UUID, 0, len(transaction.TransactionDetail))
+			for _, d := range transaction.TransactionDetail {
+				ids = append(ids, d.ProductID)
+			}
+			if err := lockProductsOrdered(tx, ids); err != nil {
+				return err
+			}
+			for _, d := range transaction.TransactionDetail {
+				var product domain.Products
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+					Where("id = ?", d.ProductID).First(&product).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return fmt.Errorf("product with id %s not found", d.ProductID)
+					}
+					return fmt.Errorf("failed to lock product: %w", err)
 				}
-				return fmt.Errorf("failed to lock product: %w", err)
-			}
-			qty := d.Qty
-			if product.Stock < qty {
-				return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", d.ProductID, product.Stock, qty)
-			}
-			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
-				Update("stock", product.Stock-qty).Error; err != nil {
-				return fmt.Errorf("failed to update product stock: %w", err)
+				qty := d.Qty
+				if product.Stock < qty {
+					return fmt.Errorf("insufficient stock for product %s (current: %v, requested: %v)", d.ProductID, product.Stock, qty)
+				}
+				if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
+					Update("stock", product.Stock-qty).Error; err != nil {
+					return fmt.Errorf("failed to update product stock: %w", err)
+				}
 			}
 		}
 
-		// 2. Untuk hutang: buat hutang baru atau tambah ke hutang pelanggan yang ada.
+		// 2. For debt: create a new debt or add to the customer's existing debt.
 		if isHutang && transaction.CustomerID != nil {
 			var debt domain.Debts
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("customer_id = ?", *transaction.CustomerID).First(&debt).Error
@@ -73,7 +88,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 				debt = domain.Debts{
 					CustomerID:    *transaction.CustomerID,
 					TotalDebt:     totalDebt,
-					RemainingDebt: debt.RemainingDebt,
+					RemainingDebt: totalDebt,
 					Status:        enum.BELUM_LUNAS,
 				}
 				if err := tx.Create(&debt).Error; err != nil {
@@ -94,7 +109,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 			transaction.DebtID = &debt.ID
 		}
 
-		// 3. Simpan transaksi beserta detailnya.
+		// 3. Save the transaction along with its details.
 		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction).Error; err != nil {
 			return fmt.Errorf("failed to create transaction: %w", err)
 		}
@@ -103,11 +118,11 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 }
 
 // DeleteTransaction implements [domain.TransactionRepository].
-// Mengembalikan stok tiap produk sebesar qty yang terjual, lalu menghapus
-// transaksinya — semuanya dalam satu transaksi DB sehingga konsisten.
+// Returns each product's stock by the sold qty, then deletes
+// the transaction — all in one DB transaction for consistency.
 func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
 	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. Ambil transaksi beserta detailnya (butuh product_id & qty per item).
+		// 1. Fetch the transaction along with its details (needs product_id & qty per item).
 		var trx domain.Transactions
 		if err := tx.Preload("TransactionDetail").Where("id = ?", id).First(&trx).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -116,7 +131,16 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			return fmt.Errorf("failed to get transaction: %w", err)
 		}
 
-		// 2. Kembalikan stok tiap produk dengan row lock agar tidak balapan.
+		// 2. Return each product's stock with a row lock to avoid a race.
+		// Lock up-front in a deterministic id order -> preventing deadlock
+		// if two concurrent deletions share products.
+		restoreIDs := make([]uuid.UUID, 0, len(trx.TransactionDetail))
+		for _, d := range trx.TransactionDetail {
+			restoreIDs = append(restoreIDs, d.ProductID)
+		}
+		if err := lockProductsOrdered(tx, restoreIDs); err != nil {
+			return err
+		}
 		for _, d := range trx.TransactionDetail {
 			var product domain.Products
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -132,15 +156,15 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			}
 		}
 
-		// 3. Bila transaksi terhubung ke hutang, kurangi saldo hutang pelanggan
-		//    sebesar nilai transaksi ini (clamp di 0 agar tidak negatif).
+		// 3. If the transaction is linked to a debt, reduce the customer's debt balance
+		//    by this transaction's value (clamped at 0 so it can't go negative).
 		if trx.DebtID != nil {
 			var debt domain.Debts
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ?", *trx.DebtID).First(&debt).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
-				// Hutang sudah tidak ada; tidak ada yang perlu dibalik.
+				// The debt no longer exists; nothing to reverse.
 			case err != nil:
 				return fmt.Errorf("failed to lock debt: %w", err)
 			default:
@@ -167,7 +191,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			}
 		}
 
-		// 4. Hapus transaksinya (soft delete).
+		// 4. Delete the transaction (soft delete).
 		result := tx.Where("id = ?", id).Delete(&domain.Transactions{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to delete transaction: %w", result.Error)
@@ -186,13 +210,29 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 	}
 
 	order := "DESC"
-	if strings.ToUpper(filter.Order) == "DESC" {
-		order = "DESC"
+	if strings.ToUpper(filter.Order) == "ASC" {
+		order = "ASC"
 	}
 
 	query := t.db.Preload("User").
 		Preload("Customer").
 		Preload("TransactionDetail").Preload("TransactionDetail.Product").WithContext(ctx).Model(&domain.Transactions{})
+
+	// Filters are applied before the cursor for cross-page consistency: the cursor may
+	// only move within the already-filtered result, not the whole table.
+	if filter.NoInvoices != "" {
+		escaped := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(filter.NoInvoices)
+		query = query.Where("no_invoice LIKE ? ESCAPE '\\'", "%"+escaped+"%")
+	}
+	if filter.TypeTrx != nil {
+		query = query.Where("payment_type = ?", *filter.TypeTrx)
+	}
+	if filter.DateStart != nil && *filter.DateStart != "" {
+		query = query.Where("created_at >= ?", *filter.DateStart)
+	}
+	if filter.DateEnd != nil && *filter.DateEnd != "" {
+		query = query.Where("created_at <= ?", *filter.DateEnd)
+	}
 
 	if filter.Cursor != nil {
 		if order == "ASC" {
@@ -236,8 +276,8 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 }
 
 // GetMonthlyReport implements [domain.TransactionRepository].
-// Mengagregasi jumlah transaksi dan nilai transaksi pada bulan & tahun tertentu.
-// payment_type = 1 (hutang) dipisahkan dari pendapatan karena belum diterima.
+// Aggregates the transaction count and value for a given month & year.
+// payment_type = 1 (debt) is separated from revenue because it hasn't been received.
 func (t *transactionRepository) GetMonthlyReport(ctx context.Context, month int, year int) (*domain.MonthlyReport, error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
@@ -258,8 +298,8 @@ func (t *transactionRepository) GetMonthlyReport(ctx context.Context, month int,
 }
 
 // GetDailyReport implements [domain.TransactionRepository].
-// Mengagregasi transaksi per hari (per tanggal) dalam bulan & tahun tertentu,
-// diurut menaik berdasarkan tanggal. Hanya hari yang ada transaksi yang muncul.
+// Aggregates transactions per day (per date) within a given month & year,
+// sorted ascending by date. Only days with transactions appear.
 func (t *transactionRepository) GetDailyReport(ctx context.Context, month int, year int) ([]domain.DailyReport, error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
@@ -283,8 +323,8 @@ func (t *transactionRepository) GetDailyReport(ctx context.Context, month int, y
 }
 
 // GetMonthlyProductSold implements [domain.TransactionRepository].
-// Rekap produk terjual selama sebulan (total qty & total penjualan per produk),
-// diurut dari yang paling banyak terjual.
+// Recap of products sold during a month (total qty & total sales per product),
+// sorted from the best-selling first.
 func (t *transactionRepository) GetMonthlyProductSold(ctx context.Context, month int, year int) ([]domain.ProductSoldReport, error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
@@ -306,8 +346,8 @@ func (t *transactionRepository) GetMonthlyProductSold(ctx context.Context, month
 }
 
 // GetDailyProductSold implements [domain.TransactionRepository].
-// Rekap produk terjual per hari (qty & penjualan per produk pada tiap tanggal),
-// diurut menaik per tanggal lalu produk terlaris di hari itu.
+// Recap of products sold per day (qty & sales per product on each date),
+// sorted ascending by date then the best-selling product that day.
 func (t *transactionRepository) GetDailyProductSold(ctx context.Context, month int, year int) ([]domain.DailyProductSoldReport, error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
@@ -348,7 +388,10 @@ func (t *transactionRepository) UpdateTransaction(ctx context.Context, id uuid.U
 	result := t.db.WithContext(ctx).Model(&domain.Transactions{}).Where("id = ?", id).Updates(trx)
 
 	if result.Error != nil {
-		return fmt.Errorf("failed to update product: %w", result.Error)
+		return fmt.Errorf("failed to update transaction: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("transaction with id %s not found", id)
 	}
 	return nil
 }

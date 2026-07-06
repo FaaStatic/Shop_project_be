@@ -33,7 +33,7 @@ var migrateResetCmd = &cobra.Command{
 		defer sqldb.Close()
 
 		if err := database.ResetMigrations(sqldb, zaplogger.Logger); err != nil {
-			zaplogger.Logger.Fatal("Gagal mereset database", zap.Error(err))
+			zaplogger.Logger.Fatal("failed to reset database", zap.Error(err))
 		}
 		fmt.Println("Database berhasil di-reset dan di-migrasi ulang!")
 	},

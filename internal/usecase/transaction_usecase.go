@@ -39,16 +39,50 @@ func NewTransactionUsecase(trxRepo domain.TransactionRepository, productRepo dom
 	}
 }
 
+// invoicePrefix is the mandatory prefix for every transaction no_invoice, shared
+// by cash transactions (AddTransaction) and payments (generateInvoice).
+const invoicePrefix = "INV-"
+
+// ensureInvoicePrefix returns a no_invoice guaranteed to start with "INV-".
+// Idempotent and case-insensitive so an already-correct invoice is not
+// duplicated. If empty, a new invoice is generated.
+func ensureInvoicePrefix(noInvoice string) string {
+	trimmed := strings.TrimSpace(noInvoice)
+	if trimmed == "" {
+		return generateInvoice()
+	}
+	if strings.HasPrefix(strings.ToUpper(trimmed), invoicePrefix) {
+		return trimmed
+	}
+	return invoicePrefix + trimmed
+}
+
 // AddTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
-	check, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, dto.NoInvoice)
+	return t.addTransaction(ctx, dto, true)
+}
+
+// AddPrepaidTransaction implements [domain.TransactionUsecase]: a transaction from
+// an online payment whose stock was already reserved at charge time, so stock
+// is not deducted again here.
+func (t *transactionUsecase) AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
+	return t.addTransaction(ctx, dto, false)
+}
+
+func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest, deductStock bool) error {
+	// Match the payment format: no_invoice always starts with "INV-".
+	// Idempotent — an invoice from a payment (order_id) already prefixed with INV-
+	// is not duplicated into "INV-INV-...".
+	noInvoice := ensureInvoicePrefix(dto.NoInvoice)
+
+	check, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, noInvoice)
 	if err != nil {
 		t.log.Error("failed to check transaction", zap.Error(err))
 		return fmt.Errorf("failed to check transaction")
 	}
 	if check != nil {
-		t.log.Error("transaction with no invoice %s already exists", zap.String("no_invoice", dto.NoInvoice))
-		return fmt.Errorf("transaction with no invoice %s already exists", dto.NoInvoice)
+		t.log.Error("transaction with no invoice %s already exists", zap.String("no_invoice", noInvoice))
+		return fmt.Errorf("transaction with no invoice %s already exists", noInvoice)
 	}
 
 	userId, err := uuid.Parse(dto.UserId)
@@ -84,8 +118,8 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 	}
 	isHutang := paymentType.String() == "hutang"
 
-	// Hitung subtotal & total di sisi server; jangan percaya nilai dari client.
-	// Harga hutang (SellingPriceDebt) dipakai bila pembayaran berupa hutang.
+	// Compute subtotal & total on the server; do not trust values from the client.
+	// The debt price (SellingPriceDebt) is used when the payment is a debt.
 	var detailTrx []domain.TransactionsDetail
 	var total float64
 	for _, detail := range dto.Details {
@@ -120,7 +154,7 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 		})
 	}
 
-	// Hutang wajib punya pelanggan yang valid (validasi sebelum menulis).
+	// A debt must have a valid customer (validated before writing).
 	if isHutang {
 		if customerId == nil {
 			t.log.Error("customer id is required for hutang")
@@ -138,7 +172,7 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 	}
 
 	data := &domain.Transactions{
-		NoInvoice:         dto.NoInvoice,
+		NoInvoice:         noInvoice,
 		UserID:            userId,
 		CustomerID:        customerId,
 		PaymentType:       paymentType,
@@ -146,9 +180,9 @@ func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto
 		TransactionDetail: detailTrx,
 	}
 
-	// Stok berkurang, hutang ter-upsert, dan transaksi tersimpan dalam satu
-	// transaksi DB: semuanya berhasil atau dibatalkan bersama.
-	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang); err != nil {
+	// Stock is decremented, the debt is upserted, and the transaction is saved in one
+	// DB transaction: all succeed or are rolled back together.
+	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock); err != nil {
 		t.log.Error("failed to create transaction", zap.Error(err))
 		return err
 	}
@@ -163,8 +197,8 @@ func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *request
 		t.log.Error("transaction id parse fail", zap.Error(err))
 		return fmt.Errorf("invalid transaction id format")
 	}
-	// Restore stok, balik saldo hutang, dan hapus transaksi dilakukan atomik
-	// di repository (semua dalam satu transaksi DB).
+	// Restoring stock, reversing the debt balance, and deleting the transaction are done
+	// atomically in the repository (all in one DB transaction).
 	if err := t.trxRepo.DeleteTransaction(ctx, trxId); err != nil {
 		t.log.Error("transaction delete fail", zap.Error(err))
 		return err
@@ -174,11 +208,11 @@ func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *request
 }
 
 // GetAllTransaction implements [domain.TransactionUsecase].
-func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) ([]*responsedto.TransactionResponse, error) {
-	// Cursor pagination opsional. Pada halaman pertama after_id/after_time belum
-	// ada, jadi parameter kosong/absen diperlakukan sebagai "tanpa cursor".
-	// Cursor dibiarkan nil agar repository tidak menerapkan filter created_at
-	// dengan zero-time (yang membuat halaman pertama kosong).
+func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*responsedto.GetAllTransactionResponse, error) {
+	// Cursor pagination is optional. On the first page after_id/after_time are not yet
+	// present, so empty/absent parameters are treated as "no cursor".
+	// The cursor is left nil so the repository does not apply a created_at filter
+	// with a zero-time (which would empty the first page).
 	var afterId, afterTimeRaw string
 	if dto.AfterID != nil {
 		afterId = strings.TrimSpace(*dto.AfterID)
@@ -194,7 +228,7 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 			t.log.Error("failed to parse after_id", zap.Error(err))
 			return nil, fmt.Errorf("invalid after_id format")
 		}
-		parsedTime, err := time.Parse(time.RFC3339, afterTimeRaw)
+		parsedTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
 		if err != nil {
 			t.log.Error("failed to parse after_time", zap.Error(err))
 			return nil, fmt.Errorf("invalid after_time format")
@@ -224,11 +258,12 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 		return nil, nil
 	}
 
-	var responses []*responsedto.TransactionResponse
+	responses := make([]*responsedto.TransactionResponse, 0, len(result.DataItem))
 	for _, trx := range result.DataItem {
-		var details []*responsedto.ProductTransactionResponse
+		details := make([]*responsedto.ProductTransactionResponse, 0, len(trx.TransactionDetail))
 		for _, d := range trx.TransactionDetail {
 			details = append(details, &responsedto.ProductTransactionResponse{
+				ProductID:   d.ProductID,
 				ProductName: d.Product.ProductName,
 				Price:       d.Price,
 				Qty:         d.Qty,
@@ -236,6 +271,7 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 			})
 		}
 		responses = append(responses, &responsedto.TransactionResponse{
+			TransactionID:      trx.ID,
 			InvoiceNumber:      trx.NoInvoice,
 			PaymentType:        int(trx.PaymentType),
 			TotalTransaction:   trx.TotalTransaction,
@@ -244,7 +280,16 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 		})
 	}
 
-	return responses, nil
+	// Cursor is nil on the last page; Encode is nil-safe (no panic).
+	nextId, nextTime := result.Cursor.Encode()
+
+	return &responsedto.GetAllTransactionResponse{
+		UserID:          dto.UserId,
+		AfterId:         nextId,
+		AfterTime:       nextTime,
+		HasNext:         result.HasNext,
+		TransactionList: responses,
+	}, nil
 }
 
 // GetTransaction implements [domain.TransactionUsecase].
@@ -287,8 +332,8 @@ func (t *transactionUsecase) GetTransaction(ctx context.Context, dto *requestdto
 }
 
 // PrintReportMonth implements [domain.TransactionUsecase].
-// Membuat PDF laporan bulanan berisi total transaksi dan pendapatan selama
-// satu bulan, lalu mengembalikan URL file yang bisa di-download client.
+// Builds a monthly PDF report with total transactions and revenue over
+// one month, then returns the file URL the client can download.
 func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestdto.PrintReportMonthRequest) (*responsedto.PrintReportMonthTransactionResponse, error) {
 	month := dto.Month
 	year := dto.Year
@@ -363,8 +408,8 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 		return nil, fmt.Errorf("failed to get daily product sold")
 	}
 
-	// Kelompokkan produk terjual per tanggal. Hasil repo sudah terurut menaik
-	// per tanggal, jadi cukup pecah saat tanggalnya berganti.
+	// Group products sold per date. The repo result is already sorted ascending
+	// by date, so just split when the date changes.
 	var dailyProducts []pdf.MonthReportDailyProducts
 	for _, p := range dailyProductSold {
 		n := len(dailyProducts)
@@ -407,8 +452,8 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 }
 
 // PrintReportTransaction implements [domain.TransactionUsecase].
-// Membuat PDF struk untuk satu transaksi (dicari via trx_id atau no_invoice)
-// yang dapat diberikan ke customer, lalu mengembalikan URL file-nya.
+// Builds a PDF receipt for a single transaction (looked up via trx_id or no_invoice)
+// that can be given to the customer, then returns its file URL.
 func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *requestdto.PrintReportTransactionRequest) (*responsedto.PrintReportTransactionResponse, error) {
 	var trxId uuid.UUID
 
@@ -435,7 +480,7 @@ func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *re
 		return nil, fmt.Errorf("trx_id or number_invoice is required")
 	}
 
-	// Ambil data lengkap (User, Customer, dan detail produk ter-preload).
+	// Fetch the full data (User, Customer, and product details preloaded).
 	trx, err := t.trxRepo.GetTransactionByID(ctx, trxId)
 	if err != nil {
 		t.log.Error("failed to get transaction", zap.Error(err))

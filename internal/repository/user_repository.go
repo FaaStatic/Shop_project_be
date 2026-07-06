@@ -40,7 +40,7 @@ func (u *userRepository) GetUserByUsername(ctx context.Context, username string)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("failed to get user by username: %w", result.Error)
 	}
 
 	return &userData, nil
@@ -53,7 +53,7 @@ func (u *userRepository) GetUserLogin(ctx context.Context, id uuid.UUID) (*domai
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("item tidak ditemukan")
+			return nil, fmt.Errorf("item not found")
 		}
 		return nil, result.Error
 	}

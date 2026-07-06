@@ -4,18 +4,20 @@ import (
 	"context"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
+	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"shop_project_be/pkg/pdf"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
-// dateLayout adalah format tanggal yang dipakai pada input/output hutang.
+// dateLayout is the date format used for debt input/output.
 const dateLayout = "2006-01-02"
 
 type debtUsecase struct {
@@ -30,12 +32,12 @@ func NewDebtUsecase(debtRepo domain.DebtRepository, log *zap.Logger) domain.Debt
 	}
 }
 
-// money memformat angka menjadi string dengan 2 desimal.
+// money formats a number into a string with 2 decimals.
 func money(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
 }
 
-// toDebtResponse memetakan entitas Debts ke DTO response.
+// toDebtResponse maps a Debts entity to the response DTO.
 func toDebtResponse(debt *domain.Debts) responsedto.DebtResponseDto {
 	var dateDebt *string
 	if !debt.DueDate.IsZero() {
@@ -105,8 +107,8 @@ func (d *debtUsecase) DeleteDebtCustomer(ctx context.Context, request *requestdt
 }
 
 // GetAllDebtCustomerList implements [domain.DebtUseCase].
-func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*[]responsedto.DebtResponseDto, error) {
-	filter := domain.FilterDebt{Limit: 10}
+func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListReponseDto, error) {
+	filter := domain.FilterDebt{Limit: request.Limit, Order: request.Order}
 	if request.CustomerId != "" {
 		customerId, err := uuid.Parse(request.CustomerId)
 		if err != nil {
@@ -114,6 +116,30 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 			return nil, fmt.Errorf("invalid customer id format")
 		}
 		filter.CustomerID = customerId
+	}
+
+	// Cursor is optional. The first page has no after_id/after_time yet, so
+	// both must be set for the cursor to apply; otherwise leave it nil so the
+	// repo does not filter created_at with a zero-time (which empties the result).
+	var afterId, afterTimeRaw string
+	if request.AfterID != nil {
+		afterId = strings.TrimSpace(*request.AfterID)
+	}
+	if request.AfterTime != nil {
+		afterTimeRaw = strings.TrimSpace(*request.AfterTime)
+	}
+	if afterId != "" && afterTimeRaw != "" {
+		afterTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
+		if err != nil {
+			d.log.Error("failed to parse after_time", zap.Error(err))
+			return nil, fmt.Errorf("invalid after_time format")
+		}
+		afterUUID, err := uuid.Parse(afterId)
+		if err != nil {
+			d.log.Error("failed to parse after_id", zap.Error(err))
+			return nil, fmt.Errorf("invalid after_id format")
+		}
+		filter.Cursor = &paginated.CursorMeta{AfterTime: afterTime, AfterID: afterUUID}
 	}
 
 	result, err := d.debtRepo.GetAllDebt(ctx, filter)
@@ -126,7 +152,16 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 	for _, debt := range result.Data {
 		responses = append(responses, toDebtResponse(debt))
 	}
-	return &responses, nil
+
+	// Cursor is nil on the last page; Encode is nil-safe (no panic).
+	nextId, nextTime := result.Cursor.Encode()
+
+	return &responsedto.DebtListReponseDto{
+		AfterId:         nextId,
+		AfterTime:       nextTime,
+		HasNext:         result.HasNext,
+		TransactionList: responses,
+	}, nil
 }
 
 // GetDebtCustomer implements [domain.DebtUseCase].
@@ -152,8 +187,8 @@ func (d *debtUsecase) GetDebtCustomer(ctx context.Context, request *requestdto.G
 }
 
 // PrintReportDebtCustomer implements [domain.DebtUseCase].
-// Membuat PDF laporan hutang seorang customer (ringkasan + riwayat pembayaran)
-// lalu mengembalikan URL file yang bisa di-download client.
+// Builds a PDF debt report for a customer (summary + payment history)
+// then returns the file URL the client can download.
 func (d *debtUsecase) PrintReportDebtCustomer(ctx context.Context, request *requestdto.PrintDebtReport) (*responsedto.PrintDebtCustomerResponse, error) {
 	if request.DebtId == "" {
 		return nil, fmt.Errorf("debt_id is required")

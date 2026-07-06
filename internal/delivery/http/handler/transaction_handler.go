@@ -24,13 +24,13 @@ func NewTransactionHandler(trxUsecase domain.TransactionUsecase, log *zap.Logger
 
 // Add godoc
 //
-//	@Summary		Tambah transaksi
-//	@Description	Membuat transaksi penjualan baru beserta detail itemnya.
+//	@Summary		Add transaction
+//	@Description	Creates a new sales transaction along with its item details.
 //	@Tags			Transactions
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.AddTransactionRequest	true	"Data transaksi"
+//	@Param			request	body		requestdto.AddTransactionRequest	true	"Transaction data"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -52,17 +52,17 @@ func (h *TransactionHandler) Add(c fiber.Ctx) error {
 
 // List godoc
 //
-//	@Summary		List transaksi
-//	@Description	Mengambil daftar transaksi milik user yang login dengan filter.
+//	@Summary		List transactions
+//	@Description	Fetches the transaction list belonging to the logged-in user with filters.
 //	@Tags			Transactions
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			date_start		query		string	false	"Tanggal mulai (YYYY-MM-DD)"
-//	@Param			date_end		query		string	false	"Tanggal akhir (YYYY-MM-DD)"
-//	@Param			type_payment	query		int		true	"Tipe pembayaran (0=tunai,1=hutang,2=transfer,3=qris)"
-//	@Param			number_invoices	query		string	false	"Filter nomor invoice"
-//	@Param			after_time		query		string	false	"Cursor waktu untuk pagination"
-//	@Param			after_id		query		string	false	"Cursor ID untuk pagination"
+//	@Param			date_start		query		string	false	"Start date (YYYY-MM-DD)"
+//	@Param			date_end		query		string	false	"End date (YYYY-MM-DD)"
+//	@Param			type_payment	query		int		true	"Payment type (0=tunai,1=hutang,2=transfer,3=qris)"
+//	@Param			number_invoices	query		string	false	"Invoice number filter"
+//	@Param			after_time		query		string	false	"Time cursor for pagination"
+//	@Param			after_id		query		string	false	"ID cursor for pagination"
 //	@Success		200				{object}	response.APIResponse
 //	@Failure		400				{object}	response.APIResponse
 //	@Failure		500				{object}	response.APIResponse
@@ -82,8 +82,8 @@ func (h *TransactionHandler) List(c fiber.Ctx) error {
 
 // Get godoc
 //
-//	@Summary		Detail transaksi
-//	@Description	Mengambil detail transaksi berdasarkan ID.
+//	@Summary		Transaction detail
+//	@Description	Fetches transaction details by ID.
 //	@Tags			Transactions
 //	@Produce		json
 //	@Security		BearerAuth
@@ -111,13 +111,13 @@ func (h *TransactionHandler) Get(c fiber.Ctx) error {
 
 // Delete godoc
 //
-//	@Summary		Hapus transaksi
-//	@Description	Menghapus transaksi berdasarkan ID.
+//	@Summary		Delete transaction
+//	@Description	Deletes a transaction by ID.
 //	@Tags			Transactions
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteTransactionRequest	true	"ID transaksi yang dihapus"
+//	@Param			request	body		requestdto.DeleteTransactionRequest	true	"ID of the transaction to delete"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -138,8 +138,8 @@ func (h *TransactionHandler) Delete(c fiber.Ctx) error {
 
 // ReportMonth godoc
 //
-//	@Summary		Laporan transaksi bulanan
-//	@Description	Menghasilkan laporan PDF rekap transaksi per bulan.
+//	@Summary		Monthly transaction report
+//	@Description	Generates a PDF monthly transaction recap report.
 //	@Tags			Transactions
 //	@Produce		json
 //	@Security		BearerAuth
@@ -167,13 +167,13 @@ func (h *TransactionHandler) ReportMonth(c fiber.Ctx) error {
 
 // ReportTransaction godoc
 //
-//	@Summary		Laporan detail transaksi
-//	@Description	Menghasilkan laporan PDF untuk satu transaksi.
+//	@Summary		Transaction detail report
+//	@Description	Generates a PDF report for a single transaction.
 //	@Tags			Transactions
 //	@Produce		json
 //	@Security		BearerAuth
 //	@Param			trx_id			query		string	false	"Transaction ID"
-//	@Param			number_invoice	query		string	false	"Nomor invoice"
+//	@Param			number_invoice	query		string	false	"Invoice number"
 //	@Success		200				{object}	response.APIResponse
 //	@Failure		400				{object}	response.APIResponse
 //	@Failure		500				{object}	response.APIResponse

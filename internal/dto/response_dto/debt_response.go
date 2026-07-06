@@ -9,6 +9,14 @@ type DebtResponseDto struct {
 	TransactionList []TransactionResponse `json:"transaction_list"`
 }
 
+type DebtListReponseDto struct {
+	AfterId         string            `json:"after_id"`
+	AfterTime       string            `json:"after_time"`
+	HasNext         bool              `json:"has_next"`
+	Page            int               `json:"page"`
+	TransactionList []DebtResponseDto `json:"transaction_list"`
+}
+
 type PrintDebtCustomerResponse struct {
 	CustomerName string `json:"customer_name"`
 	DebtId       string `json:"debt_id"`

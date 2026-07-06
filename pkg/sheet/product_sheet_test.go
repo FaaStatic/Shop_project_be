@@ -19,20 +19,20 @@ SKU-5,Gula 1kg,,10000,12000,12500,,sembako`
 		t.Fatalf("unexpected fatal error: %v", err)
 	}
 
-	// Valid: SKU-1, SKU-2, SKU-5 -> 3 baris.
+	// Valid: SKU-1, SKU-2, SKU-5 -> 3 rows.
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 valid rows, got %d (%+v)", len(rows), rows)
 	}
-	// Error: baris tanpa SKU + baris harga invalid -> 2 error.
+	// Error: row without SKU + row with invalid price -> 2 errors.
 	if len(rowErrors) != 2 {
 		t.Fatalf("expected 2 row errors, got %d (%+v)", len(rowErrors), rowErrors)
 	}
 
-	// Cek mapping kolom benar.
+	// Check the column mapping is correct.
 	if rows[0].SKU != "SKU-1" || rows[0].ProductName != "Beras 5kg" || rows[0].SellingPrice != 65000 {
 		t.Fatalf("unexpected first row: %+v", rows[0])
 	}
-	// Stock kosong -> 0.
+	// Empty stock -> 0.
 	if rows[2].SKU != "SKU-5" || rows[2].Stock != 0 {
 		t.Fatalf("unexpected last row: %+v", rows[2])
 	}

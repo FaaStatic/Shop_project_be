@@ -1,6 +1,6 @@
-// Package pdf menyediakan generator dokumen PDF untuk laporan transaksi toko.
-// File yang dihasilkan disimpan ke folder storage dan dapat diakses (di-download)
-// oleh client melalui URL relatif yang dikembalikan tiap fungsi.
+// Package pdf provides a PDF document generator for the store's transaction reports.
+// Generated files are saved to the storage folder and can be accessed (downloaded)
+// by the client via the relative URL each function returns.
 package pdf
 
 import (
@@ -9,31 +9,31 @@ import (
 	"time"
 )
 
-// reportDir adalah folder tempat file PDF REAL disimpan (relatif terhadap root
-// aplikasi). Variabel (bukan const) agar test bisa mengarahkannya ke folder
+// reportDir is the folder where REAL PDF files are stored (relative to the app
+// root). A variable (not const) so tests can point it to a separate
 // terpisah (storage/reports_test) tanpa mencemari output produksi.
 var reportDir = "storage/reports"
 
-// urlPrefix adalah prefix URL publik untuk meng-akses file yang dihasilkan.
+// urlPrefix is the public URL prefix for accessing the generated files.
 const urlPrefix = "/storage/reports"
 
-// MonthReportData adalah data yang dibutuhkan untuk membuat laporan bulanan.
+// MonthReportData is the data needed to build the monthly report.
 type MonthReportData struct {
 	StoreName        string
 	Cashier          string
 	Month            int
 	Year             int
-	TotalTransaction int64   // jumlah transaksi dalam sebulan
-	TotalRevenue     float64 // pendapatan masuk (selain hutang)
-	TotalDebt        float64 // nilai transaksi hutang (belum jadi pendapatan)
-	GrandTotal       float64 // total seluruh nilai transaksi
+	TotalTransaction int64                      // number of transactions in a month
+	TotalRevenue     float64                    // pendapatan masuk (selain hutang)
+	TotalDebt        float64                    // value of debt transactions (not yet revenue)
+	GrandTotal       float64                    // total seluruh nilai transaksi
 	Daily            []MonthReportDailyRow      // rincian per hari
-	ProductsSold     []MonthReportProductRow    // rekap barang terjual sebulan
-	DailyProducts    []MonthReportDailyProducts // barang terjual per hari
+	ProductsSold     []MonthReportProductRow    // recap of goods sold in a month
+	DailyProducts    []MonthReportDailyProducts // goods sold per day
 	GeneratedAt      time.Time
 }
 
-// MonthReportDailyRow adalah satu baris rincian transaksi pada satu hari.
+// MonthReportDailyRow is a single row of transaction detail for one day.
 type MonthReportDailyRow struct {
 	Date             time.Time
 	TotalTransaction int64
@@ -42,20 +42,20 @@ type MonthReportDailyRow struct {
 	Total            float64 // total seluruh nilai transaksi
 }
 
-// MonthReportProductRow adalah satu baris rekap produk terjual.
+// MonthReportProductRow is a single row of the products-sold recap.
 type MonthReportProductRow struct {
 	ProductName string
 	Qty         float64
 	Total       float64
 }
 
-// MonthReportDailyProducts adalah daftar produk yang terjual pada satu tanggal.
+// MonthReportDailyProducts is the list of products sold on a single date.
 type MonthReportDailyProducts struct {
 	Date     time.Time
 	Products []MonthReportProductRow
 }
 
-// TransactionReportItem adalah satu baris produk pada struk transaksi.
+// TransactionReportItem is a single product row on a transaction receipt.
 type TransactionReportItem struct {
 	ProductName string
 	Qty         float64
@@ -63,7 +63,7 @@ type TransactionReportItem struct {
 	Subtotal    float64
 }
 
-// TransactionReportData adalah data yang dibutuhkan untuk membuat struk transaksi.
+// TransactionReportData is the data needed to build a transaction receipt.
 type TransactionReportData struct {
 	StoreName   string
 	NoInvoice   string
@@ -76,8 +76,8 @@ type TransactionReportData struct {
 	GeneratedAt time.Time
 }
 
-// GenerateMonthReport membuat PDF laporan bulanan berisi total transaksi dan
-// pendapatan selama satu bulan, lalu mengembalikan URL relatif file tersebut.
+// GenerateMonthReport builds a monthly PDF report with total transactions and
+// revenue over one month, then returns the file's relative URL.
 func GenerateMonthReport(data MonthReportData) (string, error) {
 	pdf := newDocument()
 	pdf.AddPage()
@@ -118,7 +118,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 		{"Total Nilai Transaksi", formatRupiah(data.GrandTotal)},
 	}
 	for i, row := range rows {
-		// baris terakhir (total nilai) ditebalkan
+		// the last row (total value) is bold
 		if i == len(rows)-1 {
 			pdf.SetFont("Arial", "B", 11)
 		} else {
@@ -130,7 +130,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 
 	pdf.Ln(8)
 
-	// Rincian harian: tiap tanggal yang ada transaksi.
+	// Daily breakdown: each date that has transactions.
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Rincian Harian", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -142,7 +142,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 	} else {
 		pdf.SetFont("Arial", "", 9)
 		for _, d := range data.Daily {
-			// Ulang header bila baris baru akan melewati batas bawah halaman.
+			// Repeat the header if the new row would cross the page's bottom margin.
 			if pdf.GetY() > 270 {
 				pdf.AddPage()
 				drawDailyHeader(pdf)
@@ -154,7 +154,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 			pdf.CellFormat(35, 7, formatRupiah(d.Debt), "1", 0, "R", false, 0, "")
 			pdf.CellFormat(45, 7, formatRupiah(d.Total), "1", 1, "R", false, 0, "")
 		}
-		// Baris total keseluruhan.
+		// Grand total row.
 		pdf.SetFont("Arial", "B", 9)
 		pdf.CellFormat(30, 8, "TOTAL", "1", 0, "L", false, 0, "")
 		pdf.CellFormat(25, 8, strconv.FormatInt(data.TotalTransaction, 10), "1", 0, "C", false, 0, "")
@@ -165,7 +165,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 
 	pdf.Ln(8)
 
-	// Rekap barang terjual selama sebulan (agregat per produk).
+	// Recap of goods sold during the month (aggregated per product).
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Daftar Barang Terjual (Rekap Bulan)", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -196,7 +196,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 
 	pdf.Ln(8)
 
-	// Rincian barang terjual per hari (produk yang terjual di tiap tanggal).
+	// Breakdown of goods sold per day (products sold on each date).
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Rincian Barang Terjual per Hari", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -209,7 +209,7 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 			if pdf.GetY() > 260 {
 				pdf.AddPage()
 			}
-			// Sub-header tanggal.
+			// Date sub-header.
 			pdf.SetFont("Arial", "B", 10)
 			pdf.SetFillColor(245, 245, 245)
 			pdf.CellFormat(180, 7, formatDateOnly(day.Date), "1", 1, "L", true, 0, "")
@@ -237,8 +237,8 @@ func GenerateMonthReport(data MonthReportData) (string, error) {
 	return saveDocument(pdf, filename)
 }
 
-// GenerateTransactionReport membuat PDF struk transaksi yang dapat diberikan ke
-// customer, lalu mengembalikan URL relatif file tersebut.
+// GenerateTransactionReport builds a PDF transaction receipt that can be given to
+// the customer, then returns the file's relative URL.
 func GenerateTransactionReport(data TransactionReportData) (string, error) {
 	pdf := newDocument()
 	pdf.AddPage()
@@ -257,7 +257,7 @@ func GenerateTransactionReport(data TransactionReportData) (string, error) {
 	drawLine(pdf)
 	pdf.Ln(4)
 
-	// Info transaksi
+	// Transaction info
 	pdf.SetFont("Arial", "", 10)
 	metaInfo := [][2]string{
 		{"No. Invoice", data.NoInvoice},
@@ -277,7 +277,7 @@ func GenerateTransactionReport(data TransactionReportData) (string, error) {
 	}
 	pdf.Ln(3)
 
-	// Header tabel produk
+	// Product table header
 	pdf.SetFont("Arial", "B", 10)
 	pdf.SetFillColor(230, 230, 230)
 	pdf.CellFormat(70, 8, "Produk", "1", 0, "L", true, 0, "")
@@ -285,7 +285,7 @@ func GenerateTransactionReport(data TransactionReportData) (string, error) {
 	pdf.CellFormat(40, 8, "Harga", "1", 0, "R", true, 0, "")
 	pdf.CellFormat(45, 8, "Subtotal", "1", 1, "R", true, 0, "")
 
-	// Baris produk
+	// Product rows
 	pdf.SetFont("Arial", "", 10)
 	for _, item := range data.Items {
 		pdf.CellFormat(70, 8, truncate(item.ProductName, 40), "1", 0, "L", false, 0, "")

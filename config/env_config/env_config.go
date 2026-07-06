@@ -9,11 +9,17 @@ import (
 )
 
 type Config struct {
-	App     AppConfig
-	DB      DBConfig
-	Redis   RedisConfig
-	JWT     JWTConfig
-	Encrypt EncryptConfig
+	App         AppConfig
+	DB          DBConfig
+	Redis       RedisConfig
+	JWT         JWTConfig
+	Encrypt     EncryptConfig
+	FirebaseStr FirebaseAppStr
+	Midtrans    MidtransConfig
+}
+
+type FirebaseAppStr struct {
+	GOOGLE_APPLICATION_CREDENTIALS string
 }
 
 type AppConfig struct {
@@ -21,10 +27,10 @@ type AppConfig struct {
 	Port string
 	Env  string
 	Host string
-	// TrustedProxies adalah daftar IP/CIDR reverse proxy yang dipercaya. Bila
-	// diisi (mis. ["127.0.0.1"] saat di belakang nginx), c.IP() akan membaca
-	// X-Forwarded-For sehingga rate limiter mengenali IP user asli, bukan IP
-	// proxy. Kosong = tidak ada proxy dipercaya (default, anti header spoofing).
+	// TrustedProxies is the list of trusted reverse-proxy IPs/CIDRs. If
+	// set (e.g. ["127.0.0.1"] when behind nginx), c.IP() reads
+	// X-Forwarded-For so the rate limiter sees the real user IP, not the
+	// proxy IP. Empty = no trusted proxy (default, anti header spoofing).
 	TrustedProxies []string
 }
 
@@ -57,6 +63,12 @@ type EncryptConfig struct {
 	Key string
 }
 
+type MidtransConfig struct {
+	ServerKey   string
+	ClientKey   string
+	Environment string // "sandbox" | "production"
+}
+
 type configError struct {
 	field   string
 	message string
@@ -69,7 +81,7 @@ func (e *configError) Error() string {
 func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic saat load config: %v", r)
+			err = fmt.Errorf("panic while loading config: %v", r)
 			log.Error("config loader panic", zap.Any("recover", r))
 		}
 	}()
@@ -85,7 +97,7 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("gagal membaca config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	cfg = &Config{
@@ -121,13 +133,21 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 		Encrypt: EncryptConfig{
 			Key: viper.GetString("encrypt.key"),
 		},
+		Midtrans: MidtransConfig{
+			ServerKey:   viper.GetString("midtrans.server_key"),
+			ClientKey:   viper.GetString("midtrans.client_key"),
+			Environment: viper.GetString("midtrans.environment"),
+		},
+		FirebaseStr: FirebaseAppStr{
+			GOOGLE_APPLICATION_CREDENTIALS: viper.GetString("firebase.google_application_credentials"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 
-	log.Info("config berhasil dimuat",
+	log.Info("config loaded successfully",
 		zap.String("env", cfg.App.Env),
 		zap.String("config_file", viper.ConfigFileUsed()),
 	)
@@ -151,21 +171,24 @@ func (c *Config) validate() error {
 		{c.DB.DBName, "database.dbname"},
 		{c.JWT.Secret, "jwt.secret"},
 		{c.Encrypt.Key, "encrypt.key"},
+		{c.Midtrans.ServerKey, "midtrans.server_key"},
+		{c.Midtrans.ClientKey, "midtrans.client_key"},
+		{c.FirebaseStr.GOOGLE_APPLICATION_CREDENTIALS, "firebase.google_application_credentials"},
 	}
 
 	for _, r := range required {
 		if r.value == "" {
 			return &configError{
 				field:   r.field,
-				message: "field wajib tidak boleh kosong",
+				message: "required field must not be empty",
 			}
 		}
 	}
 	if c.JWT.AccessTokenTTL <= 0 {
-		return &configError{field: "jwt.token_ttl", message: "harus lebih besar dari 0"}
+		return &configError{field: "jwt.token_ttl", message: "must be greater than 0"}
 	}
 	if c.JWT.RefreshTokenTTL <= 0 {
-		return &configError{field: "jwt.refresh_token_ttl", message: "harus lebih besar dari 0"}
+		return &configError{field: "jwt.refresh_token_ttl", message: "must be greater than 0"}
 	}
 
 	return nil

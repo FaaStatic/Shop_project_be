@@ -2,7 +2,7 @@ package domain
 
 import "errors"
 
-// ErrDuplicateInvoice dikembalikan saat menyimpan transaksi dengan no_invoice
-// yang sudah dipakai. Dideteksi dari unique constraint database (bukan dari
-// pengecekan manual), sehingga aman terhadap race dua request bersamaan.
+// ErrDuplicateInvoice is returned when saving a transaction with a no_invoice
+// that is already in use. Detected from the database unique constraint (not a
+// manual check), so it is safe against a race between two concurrent requests.
 var ErrDuplicateInvoice = errors.New("transaction with this invoice already exists")

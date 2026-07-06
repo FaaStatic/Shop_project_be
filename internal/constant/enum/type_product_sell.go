@@ -35,8 +35,8 @@ func (typeItem ProductUnit) String() string {
 	}
 }
 
-// ParseProductUnit menerima satuan berupa angka (0-4) maupun teks
-// ("pcs", "kg", "liter", "kardus", "ikat"). Kosong dianggap default "pcs".
+// ParseProductUnit accepts a unit as a number (0-4) or text
+// ("pcs", "kg", "liter", "kardus", "ikat"). Empty defaults to "pcs".
 func ParseProductUnit(s string) (ProductUnit, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "pcs", "0":
@@ -50,6 +50,6 @@ func ParseProductUnit(s string) (ProductUnit, error) {
 	case "ikat", "4":
 		return ikat, nil
 	default:
-		return 0, errors.New("unit tidak valid")
+		return 0, errors.New("invalid unit")
 	}
 }

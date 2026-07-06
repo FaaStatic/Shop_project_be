@@ -62,6 +62,11 @@ type ProductRepository interface {
 	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
 	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta float64) error
 	UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error
+	// ReserveStock atomically deducts stock for all items (all-or-nothing) when
+	// an online payment charge is created; RestoreStock returns it if the charge
+	// fails to be created or the payment lapses.
+	ReserveStock(ctx context.Context, items []PaymentItem) error
+	RestoreStock(ctx context.Context, items []PaymentItem) error
 }
 
 type ProductUsecase interface {
@@ -69,7 +74,7 @@ type ProductUsecase interface {
 	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error
 	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
 	GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*Products, error)
-	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*[]responsedto.GetProductResponse, error)
+	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*responsedto.GetAllProductResponse, error)
 	UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta float64) error
 	UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta float64) error
 }

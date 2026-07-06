@@ -21,13 +21,13 @@ func NewDebtHandler(usecase domain.DebtUseCase, log *zap.Logger) *DebtHandler {
 
 // Add godoc
 //
-//	@Summary		Tambah hutang customer
-//	@Description	Mencatat hutang baru untuk seorang customer.
+//	@Summary		Add customer debt
+//	@Description	Records a new debt for a customer.
 //	@Tags			Debts
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.AddDebtRequest	true	"Data hutang"
+//	@Param			request	body		requestdto.AddDebtRequest	true	"Debt data"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -49,13 +49,13 @@ func (h *DebtHandler) Add(c fiber.Ctx) error {
 
 // Delete godoc
 //
-//	@Summary		Hapus hutang
-//	@Description	Menghapus catatan hutang berdasarkan ID.
+//	@Summary		Delete debt
+//	@Description	Deletes a debt record by ID.
 //	@Tags			Debts
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteDebtRequest	true	"ID hutang yang dihapus"
+//	@Param			request	body		requestdto.DeleteDebtRequest	true	"ID of the debt to delete"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
@@ -77,8 +77,8 @@ func (h *DebtHandler) Delete(c fiber.Ctx) error {
 
 // List godoc
 //
-//	@Summary		List hutang
-//	@Description	Mengambil daftar hutang dengan filter customer dan periode.
+//	@Summary		List debts
+//	@Description	Fetches the debt list with customer and period filters.
 //	@Tags			Debts
 //	@Produce		json
 //	@Security		BearerAuth
@@ -104,8 +104,8 @@ func (h *DebtHandler) List(c fiber.Ctx) error {
 
 // Get godoc
 //
-//	@Summary		Detail hutang
-//	@Description	Mengambil detail hutang berdasarkan ID.
+//	@Summary		Debt detail
+//	@Description	Fetches debt details by ID.
 //	@Tags			Debts
 //	@Produce		json
 //	@Security		BearerAuth
@@ -128,8 +128,8 @@ func (h *DebtHandler) Get(c fiber.Ctx) error {
 
 // Report godoc
 //
-//	@Summary		Laporan hutang customer
-//	@Description	Menghasilkan laporan PDF hutang customer berdasarkan filter.
+//	@Summary		Customer debt report
+//	@Description	Generates a PDF customer debt report based on filters.
 //	@Tags			Debts
 //	@Produce		json
 //	@Security		BearerAuth

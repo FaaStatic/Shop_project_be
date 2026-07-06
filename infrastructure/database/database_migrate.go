@@ -7,23 +7,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// MigrateDB menerapkan migration versioned (goose) ke database. Skema tidak lagi
-// dikelola lewat GORM AutoMigrate; setiap perubahan struktur harus ditambahkan
-// sebagai file SQL baru di infrastructure/database/migrations.
+// MigrateDB applies versioned (goose) migrations to the database. The schema is no longer
+// managed via GORM AutoMigrate; every structural change must be added
+// as a new SQL file in infrastructure/database/migrations.
 func MigrateDB(log *zap.Logger) error {
 	envConf, err := envconfig.InitEnvConfig(log)
 	if err != nil {
-		return fmt.Errorf("gagal init config: %w", err)
+		return fmt.Errorf("failed to init config: %w", err)
 	}
 
 	db, err := InitDB(envConf.DB, log, envConf.App.Env)
 	if err != nil {
-		return fmt.Errorf("gagal init database: %w", err)
+		return fmt.Errorf("failed to init database: %w", err)
 	}
 
 	sqlDb, err := db.DB()
 	if err != nil {
-		return fmt.Errorf("gagal ambil sql.DB: %w", err)
+		return fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 	defer sqlDb.Close()
 
@@ -31,6 +31,6 @@ func MigrateDB(log *zap.Logger) error {
 		return err
 	}
 
-	log.Info("migrasi berhasil")
+	log.Info("migration successful")
 	return nil
 }

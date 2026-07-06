@@ -20,12 +20,12 @@ func NewUserHandler(usecase domain.UserUsecase, log *zap.Logger) *UserHandler {
 
 // Register godoc
 //
-//	@Summary		Register staff baru
-//	@Description	Pendaftaran akun staff (publik). Role selalu dipaksa ke "staff"; admin/superadmin dibuat langsung lewat DB.
+//	@Summary		Register new staff
+//	@Description	Staff account registration (public). The role is always forced to "staff"; admin/superadmin are created directly via the DB.
 //	@Tags			Auth
 //	@Accept			json
 //	@Produce		json
-//	@Param			request	body		requestdto.UserRegisterRequest	true	"Data staff baru"
+//	@Param			request	body		requestdto.UserRegisterRequest	true	"New staff data"
 //	@Success		201		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		409		{object}	response.APIResponse
@@ -53,11 +53,11 @@ func (h *UserHandler) Register(c fiber.Ctx) error {
 // Login godoc
 //
 //	@Summary		Login user
-//	@Description	Autentikasi user dan menghasilkan access & refresh token.
+//	@Description	Authenticates the user and produces access & refresh tokens.
 //	@Tags			Auth
 //	@Accept			json
 //	@Produce		json
-//	@Param			request	body		requestdto.UserLoginRequest	true	"Kredensial login"
+//	@Param			request	body		requestdto.UserLoginRequest	true	"Login credentials"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		401		{object}	response.APIResponse

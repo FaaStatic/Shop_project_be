@@ -3,15 +3,18 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
-// toCustomerResponse memetakan entitas Customers ke DTO response.
+// toCustomerResponse maps a Customers entity to the response DTO.
 func toCustomerResponse(c *domain.Customers) responsedto.CustomerDtoResponse {
 	return responsedto.CustomerDtoResponse{
 		ID:     c.ID,
@@ -84,28 +87,62 @@ func (c *customerUsecase) GetCustomerShop(ctx context.Context, request *requestd
 }
 
 // GetListCustomerShop implements [domain.CustomerUsecase].
-func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requestdto.GetAllCustomer) (*[]responsedto.CustomerDtoResponse, error) {
-	limit := request.Limit
-	if limit <= 0 {
-		limit = 10
+// Fetches the customer list with name search and cursor pagination
+// (after_id + after_time from the previous page's result).
+func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requestdto.GetAllCustomer) (*responsedto.ListCustomerDtoResponse, error) {
+	// Cursor is optional. The first page has no after_id/after_time yet, so
+	// both must be set for the cursor to apply; otherwise leave it nil so the
+	// repo does not filter created_at with a zero-time (which empties the result).
+	var afterId, afterTimeRaw string
+	if request.AfterID != nil {
+		afterId = strings.TrimSpace(*request.AfterID)
 	}
-	page := request.Page
-	if page < 1 {
-		page = 1
+	if request.AfterTime != nil {
+		afterTimeRaw = strings.TrimSpace(*request.AfterTime)
 	}
-	offset := (page - 1) * limit
 
-	customers, err := c.customerRepo.GetAllCustomer(ctx, request.Search, limit, offset)
+	var cursor *paginated.CursorMeta
+	if afterId != "" && afterTimeRaw != "" {
+		afterTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
+		if err != nil {
+			c.log.Error("failed to parse after_time", zap.Error(err))
+			return nil, fmt.Errorf("invalid after_time format")
+		}
+		afterUUID, err := uuid.Parse(afterId)
+		if err != nil {
+			c.log.Error("failed to parse after_id", zap.Error(err))
+			return nil, fmt.Errorf("invalid after_id format")
+		}
+		cursor = &paginated.CursorMeta{AfterTime: afterTime, AfterID: afterUUID}
+	}
+
+	filter := domain.FilterCustomer{
+		Search: request.Search,
+		Cursor: cursor,
+		Limit:  request.Limit,
+		Order:  request.Order,
+	}
+
+	result, err := c.customerRepo.GetAllCustomer(ctx, filter)
 	if err != nil {
 		c.log.Error("failed to get customers", zap.Error(err))
 		return nil, fmt.Errorf("failed to get customers")
 	}
 
-	responses := make([]responsedto.CustomerDtoResponse, 0, len(customers))
-	for _, item := range customers {
+	responses := make([]responsedto.CustomerDtoResponse, 0, len(result.DataItem))
+	for _, item := range result.DataItem {
 		responses = append(responses, toCustomerResponse(item))
 	}
-	return &responses, nil
+
+	// Cursor is nil on the last page; Encode is nil-safe (no panic).
+	nextId, nextTime := result.Cursor.Encode()
+
+	return &responsedto.ListCustomerDtoResponse{
+		AfterId:      nextId,
+		AfterTime:    nextTime,
+		HasNext:      result.HasNext,
+		CustomerList: responses,
+	}, nil
 }
 
 // UpdateCustomerShop implements [domain.CustomerUsecase].
@@ -116,8 +153,8 @@ func (c *customerUsecase) UpdateCustomerShop(ctx context.Context, request *reque
 		return fmt.Errorf("invalid customer id format")
 	}
 
-	// Hanya field yang terisi yang diperbarui (Updates dengan struct mengabaikan
-	// nilai zero), sehingga aman untuk update parsial.
+	// Only populated fields are updated (Updates with a struct ignores zero
+	// values), so partial updates are safe.
 	customer := &domain.Customers{
 		Name:    request.CustomerName,
 		Phone:   request.PhoneNumber,

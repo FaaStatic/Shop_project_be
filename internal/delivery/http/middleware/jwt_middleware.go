@@ -69,12 +69,15 @@ func (m *JWTMiddleware) RequireRole(roles ...string) fiber.Handler {
 	}
 }
 
+// extractToken only accepts a Bearer token from the Authorization header. The cookie
+// fallback was intentionally removed: the official client (Flutter) always uses the
+// header, and a cookie path without CSRF protection would open a hole if a web frontend is added later.
 func extractToken(c fiber.Ctx) string {
 	auth := c.Get("Authorization")
-	if auth != "" && strings.HasPrefix(auth, "Bearer ") {
+	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
-	return c.Cookies("access_token")
+	return ""
 }
 func GetUserID(c fiber.Ctx) string {
 	id, _ := c.Locals("user_id").(string)

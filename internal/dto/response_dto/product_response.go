@@ -26,15 +26,17 @@ type ProductAddBulkResponse struct {
 }
 
 type GetProductResponse struct {
-	UserId   uint                 `json:"user_id"`
-	NameUser uint                 `json:"name_user"`
-	Product  []ProductDtoResponse `json:"product"`
+	UserId   string `json:"user_id"`
+	NameUser string `json:"name_user"`
+
+	Product []ProductDtoResponse `json:"product"`
 }
 
 type GetAllProductResponse struct {
-	UserId      uint                 `json:"user_id"`
-	NameUser    uint                 `json:"name_user"`
-	HashNext    bool                 `json:"hash_next"`
-	NextCursor  uint                 `json:"next_cursor"`
+	UserId      string               `json:"user_id"`
+	NextId      string               `json:"next_id"`
+	NextTime    string               `json:"next_time"`
+	HasNext     bool                 `json:"has_next"`
+	Page        int                  `json:"page"`
 	ProductList []ProductDtoResponse `json:"product_list"`
 }

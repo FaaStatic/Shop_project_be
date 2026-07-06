@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	"strings"
@@ -74,21 +73,31 @@ func (d *debtRepository) GetAllDebt(ctx context.Context, filter domain.FilterDeb
 	}
 
 	order := "DESC"
-	if strings.ToUpper(filter.Order) == "DESC" {
-		order = "DESC"
+	if strings.ToUpper(filter.Order) == "ASC" {
+		order = "ASC"
 	}
 
 	query := d.db.Preload("Customer").Preload("Transactions").Preload("DebtPayments").WithContext(ctx).Model(&domain.Debts{})
 
+	// Search matches the customer name. The JOIN needs an explicit Select("debts.*")
+	// so columns sharing a name in both tables (id, created_at, etc.) are not
+	// ambiguous/overwritten when scanned into the Debts struct.
+	if filter.Search != "" {
+		escaped := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(filter.Search)
+		query = query.Select("debts.*").
+			Joins("JOIN customers ON customers.id = debts.customer_id AND customers.deleted_at IS NULL").
+			Where("customers.name LIKE ? ESCAPE '\\'", "%"+escaped+"%")
+	}
+
 	if filter.Cursor != nil {
 		if order == "ASC" {
-			query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)",
+			query = query.Where("(debts.created_at > ?) OR (debts.created_at = ? AND debts.id > ?)",
 				filter.Cursor.AfterTime,
 				filter.Cursor.AfterTime,
 				filter.Cursor.AfterID,
 			)
 		} else {
-			query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
+			query = query.Where("(debts.created_at < ?) OR (debts.created_at = ? AND debts.id < ?)",
 				filter.Cursor.AfterTime,
 				filter.Cursor.AfterTime,
 				filter.Cursor.AfterID,
@@ -97,15 +106,15 @@ func (d *debtRepository) GetAllDebt(ctx context.Context, filter domain.FilterDeb
 	}
 
 	if filter.CustomerID != uuid.Nil {
-		query = query.Where("customer_id = ?", filter.CustomerID)
+		query = query.Where("debts.customer_id = ?", filter.CustomerID)
 	}
-	if filter.Status != enum.DebtStatus(0) {
-		query = query.Where("status = ?", filter.Status)
+	if filter.Status != nil {
+		query = query.Where("debts.status = ?", *filter.Status)
 	}
 
 	var itemList []*domain.Debts
 
-	result := query.Order("created_at " + order + ", id " + order).Limit(filter.Limit + 1).Find(&itemList)
+	result := query.Order("debts.created_at " + order + ", debts.id " + order).Limit(filter.Limit + 1).Find(&itemList)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get transaction: %w", result.Error)
 	}

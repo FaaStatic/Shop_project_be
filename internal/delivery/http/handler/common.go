@@ -6,17 +6,17 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// validate dipakai bersama oleh handler untuk memvalidasi DTO SETELAH field
-// yang berasal dari token (mis. user_id) di-inject. Binding sendiri dilakukan
-// dengan SkipValidation agar tidak gagal pada field yang baru diisi belakangan.
+// validate is shared by handlers to validate the DTO AFTER fields
+// derived from the token (e.g. user_id) are injected. Binding itself is done
+// with SkipValidation so it does not fail on fields populated later.
 var validate = appvalidator.New()
 
-// bindBody mengikat JSON body ke out tanpa auto-validation.
+// bindBody binds the JSON body into out without auto-validation.
 func bindBody(c fiber.Ctx, out any) error {
 	return c.Bind().SkipValidation(true).Body(out)
 }
 
-// bindQuery mengikat query string ke out tanpa auto-validation.
+// bindQuery binds the query string into out without auto-validation.
 func bindQuery(c fiber.Ctx, out any) error {
 	return c.Bind().SkipValidation(true).Query(out)
 }

@@ -20,23 +20,23 @@ var (
 	createAdminRole     string
 )
 
-// createAdmin membuat akun admin/superadmin langsung ke database. Endpoint
-// register publik hanya untuk staff, jadi akun privileged dibuat lewat CLI ini.
+// createAdmin creates an admin/superadmin account directly in the database. The public
+// register endpoint is staff-only, so privileged accounts are created via this CLI.
 var createAdmin = &cobra.Command{
 	Use:   "create-admin",
-	Short: "Membuat akun admin atau superadmin langsung ke database",
+	Short: "Create an admin or superadmin account directly in the database",
 	Run: func(cmd *cobra.Command, args []string) {
 		env := os.Getenv("APP_ENV")
 		loggerconfig.LoggerCustom(env)
 		defer loggerconfig.Logger.Sync()
 
-		// CLI hanya untuk akun superadmin; staff lewat endpoint register.
+		// CLI is only for superadmin accounts; staff go through the register endpoint.
 		if createAdminRole != "superadmin" {
-			loggerconfig.Logger.Fatal("role harus 'superadmin'", zap.String("role", createAdminRole))
+			loggerconfig.Logger.Fatal("role must be 'superadmin'", zap.String("role", createAdminRole))
 		}
 		roleEnum, err := enum.ParseUserRole(createAdminRole)
 		if err != nil {
-			loggerconfig.Logger.Fatal("role tidak valid", zap.Error(err))
+			loggerconfig.Logger.Fatal("invalid role", zap.Error(err))
 		}
 		if len(createAdminPassword) < 6 {
 			loggerconfig.Logger.Fatal("password minimal 6 karakter")
@@ -44,12 +44,12 @@ var createAdmin = &cobra.Command{
 
 		envConf, err := envconfig.InitEnvConfig(loggerconfig.Logger)
 		if err != nil {
-			loggerconfig.Logger.Fatal("gagal init config", zap.Error(err))
+			loggerconfig.Logger.Fatal("failed to init config", zap.Error(err))
 		}
 
 		db, err := database.InitDB(envConf.DB, loggerconfig.Logger, env)
 		if err != nil {
-			loggerconfig.Logger.Fatal("gagal init database", zap.Error(err))
+			loggerconfig.Logger.Fatal("failed to init database", zap.Error(err))
 		}
 
 		userRepo := repository.NewUserRepository(db)
@@ -57,10 +57,10 @@ var createAdmin = &cobra.Command{
 
 		existing, err := userRepo.GetUserByUsername(ctx, createAdminUsername)
 		if err != nil {
-			loggerconfig.Logger.Fatal("gagal cek username", zap.Error(err))
+			loggerconfig.Logger.Fatal("failed to check username", zap.Error(err))
 		}
 		if existing != nil {
-			loggerconfig.Logger.Fatal("username sudah dipakai", zap.String("username", createAdminUsername))
+			loggerconfig.Logger.Fatal("username already taken", zap.String("username", createAdminUsername))
 		}
 
 		user := &domain.Users{
@@ -69,13 +69,13 @@ var createAdmin = &cobra.Command{
 			Role:     roleEnum,
 		}
 		if err := user.HashPswd(); err != nil {
-			loggerconfig.Logger.Fatal("gagal hash password", zap.Error(err))
+			loggerconfig.Logger.Fatal("failed to hash password", zap.Error(err))
 		}
 		if err := userRepo.RegisterUser(ctx, user); err != nil {
-			loggerconfig.Logger.Fatal("gagal membuat user", zap.Error(err))
+			loggerconfig.Logger.Fatal("failed to create user", zap.Error(err))
 		}
 
-		loggerconfig.Logger.Info("akun berhasil dibuat",
+		loggerconfig.Logger.Info("account created successfully",
 			zap.String("username", createAdminUsername),
 			zap.String("role", roleEnum.String()),
 		)
@@ -83,9 +83,9 @@ var createAdmin = &cobra.Command{
 }
 
 func init() {
-	createAdmin.Flags().StringVarP(&createAdminUsername, "username", "u", "", "username akun (wajib)")
-	createAdmin.Flags().StringVarP(&createAdminPassword, "password", "p", "", "password akun, minimal 6 karakter (wajib)")
-	createAdmin.Flags().StringVarP(&createAdminRole, "role", "r", "superadmin", "role akun (hanya superadmin)")
+	createAdmin.Flags().StringVarP(&createAdminUsername, "username", "u", "", "account username (required)")
+	createAdmin.Flags().StringVarP(&createAdminPassword, "password", "p", "", "account password, minimum 6 characters (required)")
+	createAdmin.Flags().StringVarP(&createAdminRole, "role", "r", "superadmin", "account role (superadmin only)")
 	createAdmin.MarkFlagRequired("username")
 	createAdmin.MarkFlagRequired("password")
 	rootCmd.AddCommand(createAdmin)

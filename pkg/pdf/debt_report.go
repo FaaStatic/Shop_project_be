@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// DebtReportData adalah data untuk membuat laporan/struk hutang customer.
+// DebtReportData is the data for building a customer's debt report/receipt.
 type DebtReportData struct {
 	StoreName       string
 	DebtID          string
@@ -20,15 +20,15 @@ type DebtReportData struct {
 	GeneratedAt     time.Time
 }
 
-// DebtPaymentRow adalah satu baris riwayat pembayaran hutang.
+// DebtPaymentRow is a single row of debt payment history.
 type DebtPaymentRow struct {
 	Date    time.Time
 	Cashier string
 	Nominal float64
 }
 
-// GenerateDebtReport membuat PDF laporan hutang seorang customer (ringkasan +
-// riwayat pembayaran) lalu mengembalikan URL relatif file-nya.
+// GenerateDebtReport builds a PDF debt report for a customer (summary +
+// payment history) then returns the file's relative URL.
 func GenerateDebtReport(data DebtReportData) (string, error) {
 	pdf := newDocument()
 	pdf.AddPage()
@@ -65,7 +65,7 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	}
 	pdf.Ln(4)
 
-	// Ringkasan hutang
+	// Debt summary
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Ringkasan", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -90,7 +90,7 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	}
 	pdf.Ln(6)
 
-	// Riwayat pembayaran
+	// Payment history
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Riwayat Pembayaran", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -124,7 +124,7 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	return saveDocument(pdf, filename)
 }
 
-// formatDueDate memformat tanggal jatuh tempo; nol -> "-".
+// formatDueDate formats the due date; zero -> "-".
 func formatDueDate(t time.Time) string {
 	if t.IsZero() {
 		return "-"

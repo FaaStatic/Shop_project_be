@@ -24,7 +24,13 @@ redis:
   host:
 jwt:
   secret:
-  token_ttl: 
-  refresh_token_ttl: 
+  token_ttl:
+  refresh_token_ttl:
 encrypt:
   key:
+midtrans:
+  server_key:
+  client_key:
+  environment:
+firebase:
+  google_application_credentials:

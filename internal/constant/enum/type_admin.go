@@ -9,7 +9,7 @@ type UserRole int
 
 const (
 	superadmin UserRole = iota // 0
-	_                          // 1: dulu admin, kini tidak dipakai (direservasi agar staff tetap 2)
+	_                          // 1: formerly admin, now unused (reserved so staff stays 2)
 	staff                      // 2
 )
 

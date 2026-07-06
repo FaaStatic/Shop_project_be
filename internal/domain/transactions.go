@@ -19,7 +19,7 @@ type Transactions struct {
 	CustomerID *uuid.UUID `gorm:"column:customer_id" json:"customer_id"`
 	DebtID     *uuid.UUID `gorm:"column:debt_id;index" json:"debt_id"`
 
-	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
+	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3,4);not null" json:"payment_type"`
 	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
@@ -66,15 +66,15 @@ type ResultTransaction struct {
 	Cursor   *paginated.CursorMeta
 }
 
-// MonthlyReport adalah hasil agregasi transaksi selama satu bulan.
+// MonthlyReport is the aggregation of transactions over one month.
 type MonthlyReport struct {
-	TotalTransaction int64   `gorm:"column:total_transaction"` // jumlah transaksi
-	TotalRevenue     float64 `gorm:"column:total_revenue"`     // pendapatan masuk (selain hutang)
-	TotalDebt        float64 `gorm:"column:total_debt"`        // nilai transaksi hutang
-	GrandTotal       float64 `gorm:"column:grand_total"`       // total seluruh nilai transaksi
+	TotalTransaction int64   `gorm:"column:total_transaction"` // number of transactions
+	TotalRevenue     float64 `gorm:"column:total_revenue"`     // incoming revenue (excluding debt)
+	TotalDebt        float64 `gorm:"column:total_debt"`        // value of debt transactions
+	GrandTotal       float64 `gorm:"column:grand_total"`       // total of all transaction values
 }
 
-// DailyReport adalah agregasi transaksi pada satu hari dalam bulan tersebut.
+// DailyReport is the aggregation of transactions on a single day of that month.
 type DailyReport struct {
 	Date             time.Time `gorm:"column:date"`
 	TotalTransaction int64     `gorm:"column:total_transaction"`
@@ -83,14 +83,14 @@ type DailyReport struct {
 	GrandTotal       float64   `gorm:"column:grand_total"`
 }
 
-// ProductSoldReport adalah rekap satu produk terjual selama sebulan.
+// ProductSoldReport is the recap of a single product sold during a month.
 type ProductSoldReport struct {
 	ProductName string  `gorm:"column:product_name"`
 	Qty         float64 `gorm:"column:qty"`
 	Total       float64 `gorm:"column:total"`
 }
 
-// DailyProductSoldReport adalah rekap satu produk terjual pada satu hari.
+// DailyProductSoldReport is the recap of a single product sold on a single day.
 type DailyProductSoldReport struct {
 	Date        time.Time `gorm:"column:date"`
 	ProductName string    `gorm:"column:product_name"`
@@ -99,7 +99,10 @@ type DailyProductSoldReport struct {
 }
 
 type TransactionRepository interface {
-	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool) error
+	// CreateTransaction saves the transaction + details atomically. deductStock
+	// is false for transactions from online payments whose stock was already
+	// reserved at charge time (must not be deducted twice).
+	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool, deductStock bool) error
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
 	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
@@ -113,8 +116,12 @@ type TransactionRepository interface {
 
 type TransactionUsecase interface {
 	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
+	// AddPrepaidTransaction is like AddTransaction but does NOT deduct stock —
+	// only for transactions from online payments whose stock was already
+	// reserved. Do not expose it to the HTTP handler.
+	AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
 	GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error)
-	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) ([]*responsedto.TransactionResponse, error)
+	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*responsedto.GetAllTransactionResponse, error)
 	DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error
 	PrintReportTransaction(ctx context.Context, dto *requestdto.PrintReportTransactionRequest) (*responsedto.PrintReportTransactionResponse, error)
 	PrintReportMonth(ctx context.Context, dto *requestdto.PrintReportMonthRequest) (*responsedto.PrintReportMonthTransactionResponse, error)

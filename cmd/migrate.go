@@ -18,7 +18,7 @@ var migrateDb = &cobra.Command{
 		zaplogger.LoggerCustom(env)
 		defer zaplogger.Logger.Sync()
 		if err := database.MigrateDB(zaplogger.Logger); err != nil {
-			zaplogger.Logger.Fatal("gagal migrate database", zap.Error(err))
+			zaplogger.Logger.Fatal("failed to migrate database", zap.Error(err))
 		}
 	},
 }
