@@ -103,9 +103,14 @@ Fungsi `applyFee(method string, subtotal int64) int64` di usecase, dihitung serv
   - Di blok deduksi stok, **lewati** produk `digital` (`if product.ProductType == digital { continue }`)
     sebelum cek/`Update` stok. Lock tetap aman (locking baris digital = no-op).
 - `DeleteTransaction`: saat restore stok, **lewati** produk digital (tidak menambah stok balik).
-- Konsistensi jalur online: `ProductRepository.ReserveStock`/`RestoreStock` dan
-  `payment_usecase.buildOrder` juga melewati produk digital (agar pulsa/e-wallet bisa dibeli
-  via QRIS tanpa mentok cek stok). Perilaku disatukan lewat pengecekan `ProductType`.
+- Jalur online (QRIS/VA): `ProductRepository.ReserveStock`/`RestoreStock` melewati produk
+  digital. **Keputusan (final review):** produk digital **tidak** boleh dibeli via pembayaran
+  online — `payment_usecase.buildOrder` **menolak** cart yang memuat item digital dengan error
+  400 yang jelas. Alasan: alur online/`PaymentItem` tidak punya field `destination`, sedangkan
+  `addTransaction` mewajibkannya untuk produk digital; membiarkannya lolos akan membuat
+  pembayaran ter-*capture* tapi gagal difinalisasi (stuck). Penjualan produk digital hanya
+  lewat POS `/transactions` (cash/transfer/hutang). Pembelian digital via QRIS/VA bisa jadi
+  fitur terpisah nanti (perlu menambah `destination` ke DTO online + alur webhook).
 
 ### 2.4 DTO produk (`internal/dto/request_dto/product_request.go`)
 
