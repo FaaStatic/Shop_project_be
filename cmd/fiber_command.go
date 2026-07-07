@@ -21,6 +21,7 @@ import (
 	"shop_project_be/pkg/jwt"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -86,21 +87,32 @@ var serverRun = &cobra.Command{
 
 		// Periodic reconciliation: pending payments whose webhook never
 		// arrived are queried against Midtrans — lapsed stock reservations
-		// are released, missed settlements are finalized.
-		go func() {
-			ticker := time.NewTicker(10 * time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-rootCtx.Done():
-					return
-				case <-ticker.C:
-					if err := paymentUC.ReconcileStalePayments(rootCtx); err != nil {
-						loggerconfig.Logger.Error("payment reconciliation sweep failed", zap.Error(err))
+		// are released, missed settlements are finalized. Skipped entirely
+		// when Midtrans isn'''t configured (no online payments can exist to reconcile).
+		if !envConf.Midtrans.Configured() {
+			loggerconfig.Logger.Warn("midtrans not configured: online payment routes disabled")
+		}
+		// Run the reconciliation sweep in exactly ONE process. With prefork enabled
+		// every child re-executes this program, so without this guard each child
+		// would run its own sweep (N× redundant Midtrans calls). fiber.IsChild() is
+		// false for the supervising master (prefork on) and for the sole process
+		// (prefork off), so the sweep runs once in both modes.
+		if envConf.Midtrans.Configured() && !fiber.IsChild() {
+			go func() {
+				ticker := time.NewTicker(10 * time.Minute)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-rootCtx.Done():
+						return
+					case <-ticker.C:
+						if err := paymentUC.ReconcileStalePayments(rootCtx); err != nil {
+							loggerconfig.Logger.Error("payment reconciliation sweep failed", zap.Error(err))
+						}
 					}
 				}
-			}
-		}()
+			}()
+		}
 
 		// Handler & middleware
 		handlers := route.Handlers{
@@ -114,7 +126,7 @@ var serverRun = &cobra.Command{
 		}
 		jwtMw := middleware.NewJwtMiddleware(jwtService, sessionRepo)
 		storage := cache.NewLimiterStorage(&envConf.Redis)
-		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, storage, route.New(handlers, jwtMw, storage, loggerconfig.Logger))
+		app := fiberconfig.InitFiber(env, envConf, loggerconfig.Logger, storage, route.New(handlers, jwtMw, storage, loggerconfig.Logger, envConf.Midtrans.Configured()))
 
 		loggerconfig.Logger.Info("server starting",
 			zap.String("app", envConf.App.Name),

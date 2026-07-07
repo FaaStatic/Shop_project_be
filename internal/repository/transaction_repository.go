@@ -41,7 +41,7 @@ func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context,
 // if it's a debt payment, then saves the transaction — all in one
 // DB transaction so they succeed/roll back together.
 func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool, deductStock bool) error {
-	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, t.db, func(tx *gorm.DB) error {
 		// 1. Decrement each product's stock with a lock to avoid a stock race.
 		// deductStock is false for transactions from online payments: their stock
 		// was already deducted at charge reservation, don't deduct it twice.
@@ -64,7 +64,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 					if errors.Is(err, gorm.ErrRecordNotFound) {
 						return fmt.Errorf("product with id %s not found", d.ProductID)
 					}
-					return fmt.Errorf("failed to lock product: %w", err)
+					return internalErr(fmt.Errorf("failed to lock product: %w", err))
 				}
 				if product.ProductType.IsDigital() {
 					continue // digital goods are not stock-managed
@@ -75,7 +75,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 				}
 				if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
 					Update("stock", product.Stock-qty).Error; err != nil {
-					return fmt.Errorf("failed to update product stock: %w", err)
+					return internalErr(fmt.Errorf("failed to update product stock: %w", err))
 				}
 			}
 		}
@@ -95,10 +95,10 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 					Status:        enum.BELUM_LUNAS,
 				}
 				if err := tx.Create(&debt).Error; err != nil {
-					return fmt.Errorf("failed to create debt: %w", err)
+					return internalErr(fmt.Errorf("failed to create debt: %w", err))
 				}
 			case err != nil:
-				return fmt.Errorf("failed to get debt: %w", err)
+				return internalErr(fmt.Errorf("failed to get debt: %w", err))
 			default:
 				if err := tx.Model(&domain.Debts{}).Where("id = ?", debt.ID).
 					Updates(map[string]interface{}{
@@ -106,7 +106,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 						"remaining_debt": debt.RemainingDebt + transaction.TotalTransaction,
 						"status":         enum.BELUM_LUNAS,
 					}).Error; err != nil {
-					return fmt.Errorf("failed to update debt: %w", err)
+					return internalErr(fmt.Errorf("failed to update debt: %w", err))
 				}
 			}
 			transaction.DebtID = &debt.ID
@@ -114,7 +114,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 
 		// 3. Save the transaction along with its details.
 		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction).Error; err != nil {
-			return fmt.Errorf("failed to create transaction: %w", err)
+			return internalErr(fmt.Errorf("failed to create transaction: %w", err))
 		}
 		return nil
 	})
@@ -124,14 +124,14 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 // Returns each product's stock by the sold qty, then deletes
 // the transaction — all in one DB transaction for consistency.
 func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
-	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, t.db, func(tx *gorm.DB) error {
 		// 1. Fetch the transaction along with its details (needs product_id & qty per item).
 		var trx domain.Transactions
 		if err := tx.Preload("TransactionDetail").Where("id = ?", id).First(&trx).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("transaction with id %s not found", id)
 			}
-			return fmt.Errorf("failed to get transaction: %w", err)
+			return internalErr(fmt.Errorf("failed to get transaction: %w", err))
 		}
 
 		// 2. Return each product's stock with a row lock to avoid a race.
@@ -158,7 +158,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			}
 			if err := tx.Model(&domain.Products{}).Where("id = ?", d.ProductID).
 				Update("stock", product.Stock+d.Qty).Error; err != nil {
-				return fmt.Errorf("failed to restore product stock: %w", err)
+				return internalErr(fmt.Errorf("failed to restore product stock: %w", err))
 			}
 		}
 
@@ -172,7 +172,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				// The debt no longer exists; nothing to reverse.
 			case err != nil:
-				return fmt.Errorf("failed to lock debt: %w", err)
+				return internalErr(fmt.Errorf("failed to lock debt: %w", err))
 			default:
 				newTotal := debt.TotalDebt - trx.TotalTransaction
 				if newTotal < 0 {
@@ -192,7 +192,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 						"remaining_debt": newRemaining,
 						"status":         status,
 					}).Error; err != nil {
-					return fmt.Errorf("failed to reverse debt: %w", err)
+					return internalErr(fmt.Errorf("failed to reverse debt: %w", err))
 				}
 			}
 		}
@@ -200,7 +200,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 		// 4. Delete the transaction (soft delete).
 		result := tx.Where("id = ?", id).Delete(&domain.Transactions{})
 		if result.Error != nil {
-			return fmt.Errorf("failed to delete transaction: %w", result.Error)
+			return internalErr(fmt.Errorf("failed to delete transaction: %w", result.Error))
 		}
 		if result.RowsAffected == 0 {
 			return fmt.Errorf("transaction with id %s not found", id)

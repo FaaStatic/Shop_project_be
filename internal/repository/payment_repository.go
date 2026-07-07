@@ -76,7 +76,7 @@ func (p *paymentRepository) ListStalePending(ctx context.Context, limit int) ([]
 // Note: fn may open another DB connection (e.g. creating a sales transaction
 // via another usecase); the connection pool must be > 1 to avoid mutual waiting.
 func (p *paymentRepository) UpdateWithLock(ctx context.Context, orderID string, fn func(payment *domain.Payment) (bool, error)) error {
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		var payment domain.Payment
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("order_id = ?", orderID).First(&payment).Error; err != nil {

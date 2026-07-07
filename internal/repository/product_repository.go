@@ -68,7 +68,7 @@ func (p *productRepository) AddBulkProduct(ctx context.Context, products []*doma
 
 	const batchSize = 100
 	var inserted int64
-	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		// ON CONFLICT (sku) DO NOTHING: safe if a SKU passed the pre-check
 		// but was already added by another transaction (race) or soft-deleted.
 		result := tx.Clauses(clause.OnConflict{
@@ -214,14 +214,14 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 // from fields. If stockDelta != 0, stock changes atomically (current + delta)
 // within the same lock -> preventing lost updates under concurrent changes.
 func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error {
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		var product domain.Products
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", id).First(&product).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("product with id %s not found", id)
 			}
-			return fmt.Errorf("failed to find product for update: %w", err)
+			return internalErr(fmt.Errorf("failed to find product for update: %w", err))
 		}
 
 		if stockDelta != 0 {
@@ -237,7 +237,7 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 		}
 
 		if err := tx.Model(&domain.Products{}).Where("id = ?", id).Updates(fields).Error; err != nil {
-			return fmt.Errorf("failed to update product: %w", err)
+			return internalErr(fmt.Errorf("failed to update product: %w", err))
 		}
 		return nil
 	})
@@ -250,7 +250,7 @@ func (p *productRepository) ReserveStock(ctx context.Context, items []domain.Pay
 	if len(items) == 0 {
 		return nil
 	}
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		// Lock all product rows up-front in a deterministic id order
 		// (ORDER BY id) so two concurrent reservations sharing products do not
 		// lock in crossing order -> preventing deadlock. The loop below stays in
@@ -289,7 +289,7 @@ func (p *productRepository) RestoreStock(ctx context.Context, items []domain.Pay
 	if len(items) == 0 {
 		return nil
 	}
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		// Lock rows in a deterministic id order first so concurrent restores
 		// sharing products do not deadlock (missing rows are ignored,
 		// exactly as with the earlier lock-free UPDATE).
@@ -316,6 +316,14 @@ func (p *productRepository) RestoreStock(ctx context.Context, items []domain.Pay
 	})
 }
 
+// internalErr marks an infrastructure/DB failure so the usecase layer can return
+// a clean generic message to the client (driver/schema detail stays server-side
+// in the log) while errors.Is(err, domain.ErrInternal) still reports true. The
+// original cause is preserved for logging via the second %w.
+func internalErr(err error) error {
+	return fmt.Errorf("%w: %w", domain.ErrInternal, err)
+}
+
 // paymentItemIDs collects the product ids from a list of payment items.
 func paymentItemIDs(items []domain.PaymentItem) []uuid.UUID {
 	ids := make([]uuid.UUID, 0, len(items))
@@ -337,21 +345,21 @@ func lockProductsOrdered(tx *gorm.DB, ids []uuid.UUID) error {
 	var locked []domain.Products
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("id IN ?", ids).Order("id").Find(&locked).Error; err != nil {
-		return fmt.Errorf("failed to lock products: %w", err)
+		return internalErr(fmt.Errorf("failed to lock products: %w", err))
 	}
 	return nil
 }
 
 // UpdateStockWithLock implements [domain.ProductRepository].
 func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta float64) error {
-	return p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		var product domain.Products
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&product)
 		if result.Error != nil {
 			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("product with id %s not found", id)
 			}
-			return fmt.Errorf("failed to find product for update: %w", result.Error)
+			return internalErr(fmt.Errorf("failed to find product for update: %w", result.Error))
 		}
 
 		newStock := product.Stock + delta
@@ -365,7 +373,7 @@ func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUI
 			Update("stock", newStock)
 
 		if updateResult.Error != nil {
-			return fmt.Errorf("failed to update product stock: %w", updateResult.Error)
+			return internalErr(fmt.Errorf("failed to update product stock: %w", updateResult.Error))
 		}
 
 		return nil

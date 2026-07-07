@@ -113,15 +113,22 @@ func formatDateOnly(t time.Time) string {
 	return fmt.Sprintf("%02d %s %d", t.Day(), monthNameShortID(int(t.Month())), t.Year())
 }
 
-// truncate cuts a string longer than max and appends an ellipsis.
+// truncate cuts a string longer than max runes and appends an ellipsis. It
+// counts and slices by rune (not byte) so multi-byte UTF-8 names are never split
+// mid-character, which would emit invalid text into the PDF. For ASCII input the
+// result is identical to a byte-based cut.
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
 	if max <= 3 {
-		return s[:max]
+		return string(r[:max])
 	}
-	return s[:max-3] + "..."
+	return string(r[:max-3]) + "..."
 }
 
 // sanitizeFilename replaces characters that are unsafe for a file name.

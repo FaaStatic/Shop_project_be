@@ -11,10 +11,17 @@ database:
   user:
   pass:
   port:
-  dbname: 
+  dbname:
   host:
   sslmode:
   time_zone:
+  # Opsional. Kosong/0 = pakai default (max_open 100, max_idle 10, lifetime 60m).
+  # Penting saat prefork aktif: tiap proses punya pool sendiri, jadi N proses
+  # membuka hingga N×max_open_conns. Turunkan agar tetap di bawah max_connections
+  # Postgres (mis. 4 core → set 20 agar total ~80).
+  max_open_conns:
+  max_idle_conns:
+  conn_max_lifetime_minutes:
 redis:
   url:
   db:

@@ -43,6 +43,10 @@ type CustomersPaginated struct {
 
 type CustomerRepository interface {
 	GetCustomer(ctx context.Context, id uuid.UUID) (*[]Customers, error)
+	// ExistsCustomer reports whether a (non-deleted) customer with the given id
+	// exists, without loading the customer or its associations — used on hot
+	// paths (e.g. debt transaction creation) that only need existence.
+	ExistsCustomer(ctx context.Context, id uuid.UUID) (bool, error)
 	UpdateCustomer(ctx context.Context, id uuid.UUID, customer *Customers) error
 	AddCustomer(ctx context.Context, customer *Customers) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error

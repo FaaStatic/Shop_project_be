@@ -31,6 +31,18 @@ func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customer
 	return &debtId, nil
 }
 
+// ExistsCustomer implements [domain.CustomerRepository]. Counts by id only so
+// no row data or associations are loaded (soft-deleted rows are excluded by the
+// default gorm scope).
+func (c *customerRepository) ExistsCustomer(ctx context.Context, id uuid.UUID) (bool, error) {
+	var count int64
+	if err := c.db.WithContext(ctx).Model(&domain.Customers{}).
+		Where("id = ?", id).Limit(1).Count(&count).Error; err != nil {
+		return false, internalErr(fmt.Errorf("failed to check customer: %w", err))
+	}
+	return count > 0, nil
+}
+
 // AddCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) AddCustomer(ctx context.Context, customer *domain.Customers) error {
 	result := c.db.WithContext(ctx).Create(customer)

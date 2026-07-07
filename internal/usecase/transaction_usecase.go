@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
@@ -182,12 +183,12 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 			t.log.Error("customer id is required for hutang")
 			return fmt.Errorf("customer id is required for hutang")
 		}
-		customer, err := t.customerRepo.GetCustomer(ctx, *customerId)
+		exists, err := t.customerRepo.ExistsCustomer(ctx, *customerId)
 		if err != nil {
 			t.log.Error("failed to get customer", zap.Error(err))
 			return fmt.Errorf("failed to get customer")
 		}
-		if customer == nil {
+		if !exists {
 			t.log.Error("customer not found", zap.String("customer_id", *dto.CustomerId))
 			return fmt.Errorf("customer not found")
 		}
@@ -207,6 +208,11 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	// DB transaction: all succeed or are rolled back together.
 	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock); err != nil {
 		t.log.Error("failed to create transaction", zap.Error(err))
+		// Infrastructure/DB failures must not leak driver detail to the client;
+		// business errors (insufficient stock, product not found) pass through.
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to create transaction")
+		}
 		return err
 	}
 
@@ -224,6 +230,9 @@ func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *request
 	// atomically in the repository (all in one DB transaction).
 	if err := t.trxRepo.DeleteTransaction(ctx, trxId); err != nil {
 		t.log.Error("transaction delete fail", zap.Error(err))
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to delete transaction")
+		}
 		return err
 	}
 

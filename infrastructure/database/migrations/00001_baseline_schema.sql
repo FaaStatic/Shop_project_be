@@ -1,8 +1,5 @@
 -- +goose Up
--- Baseline schema. Mencerminkan kondisi tabel saat migrasi versioned (goose)
--- mulai diadopsi. Sengaja idempoten (CREATE ... IF NOT EXISTS + constraint
--- inline) supaya aman dijalankan baik pada database yang SUDAH berisi tabel
--- (no-op, data lama tetap utuh) maupun database baru (membuat dari nol).
+-- Baseline schema, consolidated to match internal/domain/ as of this migration.
 -- Perubahan skema selanjutnya WAJIB lewat file migration baru, bukan AutoMigrate.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -16,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at timestamptz,
     deleted_at timestamptz,
     CONSTRAINT users_pkey PRIMARY KEY (id),
-    CONSTRAINT chk_users_role CHECK (role IN (0, 1, 2))
+    CONSTRAINT chk_users_role CHECK (role IN (0, 2))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username);
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users (deleted_at);
@@ -38,6 +35,7 @@ CREATE TABLE IF NOT EXISTS products (
     sku                varchar(50),
     product_name       varchar(255) NOT NULL,
     unit               smallint NOT NULL,
+    product_type       smallint NOT NULL DEFAULT 0,
     purchase_price     numeric(15,2) NOT NULL,
     selling_price      numeric(15,2) NOT NULL,
     selling_price_debt numeric(15,2) NOT NULL,
@@ -48,7 +46,8 @@ CREATE TABLE IF NOT EXISTS products (
     updated_at         timestamptz,
     deleted_at         timestamptz,
     CONSTRAINT products_pkey PRIMARY KEY (id),
-    CONSTRAINT chk_products_unit CHECK (unit IN (0, 1, 2, 3, 4, 5))
+    CONSTRAINT chk_products_unit CHECK (unit IN (0, 1, 2, 3, 4, 5)),
+    CONSTRAINT chk_products_product_type CHECK (product_type IN (0, 1))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products (sku);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products (category);
@@ -88,6 +87,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     customer_id       uuid,
     debt_id           uuid,
     payment_type      smallint NOT NULL,
+    bank              varchar(20),
     total_transaction numeric(15,2) NOT NULL,
     created_at        timestamptz,
     updated_at        timestamptz,
@@ -110,12 +110,67 @@ CREATE TABLE IF NOT EXISTS transactions_detail (
     price_debt     numeric(15,2) NOT NULL,
     qty            numeric(8,2) NOT NULL,
     subtotal       numeric(15,2) NOT NULL,
+    destination    varchar(50),
     CONSTRAINT transactions_detail_pkey PRIMARY KEY (id),
     CONSTRAINT fk_transactions_transaction_detail FOREIGN KEY (transaction_id) REFERENCES transactions (id),
     CONSTRAINT fk_transactions_detail_product FOREIGN KEY (product_id) REFERENCES products (id)
 );
 
+CREATE TABLE IF NOT EXISTS payments (
+    id               uuid DEFAULT gen_random_uuid() NOT NULL,
+    order_id         varchar(50) NOT NULL,
+    user_id          uuid NOT NULL,
+    customer_id      uuid,
+    method           varchar(20) NOT NULL,
+    gross_amount     numeric(15,2) NOT NULL,
+    status           varchar(20) NOT NULL DEFAULT 'pending',
+    midtrans_trx_id  varchar(100),
+    midtrans_status  varchar(30),
+    fraud_status     varchar(30),
+    qr_string        text,
+    qr_url           text,
+    redirect_url     text,
+    items            jsonb,
+    expiry_time      timestamptz,
+    paid_at          timestamptz,
+    transaction_id   uuid,
+    stock_reserved   boolean NOT NULL DEFAULT false,
+    va_bank          varchar(20),
+    va_number        varchar(50),
+    bill_key         varchar(50),
+    biller_code      varchar(20),
+    created_at       timestamptz,
+    updated_at       timestamptz,
+    deleted_at       timestamptz,
+    CONSTRAINT payments_pkey PRIMARY KEY (id),
+    CONSTRAINT chk_payments_status CHECK (status IN ('pending', 'success', 'failed', 'expired')),
+    CONSTRAINT fk_payments_user FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT fk_payments_customer FOREIGN KEY (customer_id) REFERENCES customers (id),
+    CONSTRAINT fk_payments_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_order_id ON payments (order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments (status);
+CREATE INDEX IF NOT EXISTS idx_payments_deleted_at ON payments (deleted_at);
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+    id           uuid DEFAULT gen_random_uuid() NOT NULL,
+    token        text NOT NULL,
+    user_id      uuid,
+    device_id    text NOT NULL,
+    platform     varchar(16) NOT NULL,
+    created_at   timestamptz,
+    updated_at   timestamptz,
+    last_used_at timestamptz,
+    CONSTRAINT device_tokens_pkey PRIMARY KEY (id),
+    CONSTRAINT fk_device_tokens_user FOREIGN KEY (user_id) REFERENCES users (id)
+);
+-- Unique index pada token diperlukan oleh upsert ON CONFLICT (token) di repository.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_tokens_token ON device_tokens (token);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens (user_id);
+
 -- +goose Down
+DROP TABLE IF EXISTS device_tokens;
+DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS transactions_detail;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS debt_payments;

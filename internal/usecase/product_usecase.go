@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
@@ -284,6 +285,11 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 
 	if err := p.productRepo.UpdateProductWithLock(ctx, id, fields, delta); err != nil {
 		p.log.Error("failed to update product", zap.Error(err))
+		// Hide DB/driver detail on internal failures; keep business errors
+		// (e.g. insufficient stock) visible to the caller.
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to update product")
+		}
 		return fmt.Errorf("failed to update product: %w", err)
 	}
 	return nil
@@ -301,6 +307,9 @@ func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *reque
 
 	if err := p.productRepo.UpdateStockWithLock(ctx, id, delta); err != nil {
 		p.log.Error("failed to update stock", zap.Error(err))
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to update stock")
+		}
 		return fmt.Errorf("failed to update stock: %w", err)
 	}
 	return nil

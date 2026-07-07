@@ -42,6 +42,15 @@ type DBConfig struct {
 	DBName   string
 	SSLMode  string
 	TimeZone string
+
+	// Connection pool sizing. Optional — when unset (0) InitDB keeps the current
+	// defaults (MaxOpen 100, MaxIdle 10, lifetime 60m). These matter under
+	// prefork: each process owns its own pool, so N processes open up to
+	// N×MaxOpen connections. Lower MaxOpenConns to stay within the database's
+	// max_connections when running with prefork on multiple cores.
+	MaxOpenConns           int
+	MaxIdleConns           int
+	ConnMaxLifetimeMinutes int
 }
 
 type RedisConfig struct {
@@ -67,6 +76,13 @@ type MidtransConfig struct {
 	ServerKey   string
 	ClientKey   string
 	Environment string // "sandbox" | "production"
+}
+
+// Configured reports whether Midtrans credentials are present. Both keys are
+// optional at the config level so the app can boot without online payments;
+// callers must gate payment routes on this instead of failing startup.
+func (m MidtransConfig) Configured() bool {
+	return m.ServerKey != "" && m.ClientKey != ""
 }
 
 type configError struct {
@@ -116,6 +132,10 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 			DBName:   viper.GetString("database.dbname"),
 			SSLMode:  viper.GetString("database.sslmode"),
 			TimeZone: viper.GetString("database.time_zone"),
+			// Optional pool overrides; 0 (absent) keeps InitDB's defaults.
+			MaxOpenConns:           viper.GetInt("database.max_open_conns"),
+			MaxIdleConns:           viper.GetInt("database.max_idle_conns"),
+			ConnMaxLifetimeMinutes: viper.GetInt("database.conn_max_lifetime_minutes"),
 		},
 		Redis: RedisConfig{
 			URL:      viper.GetString("redis.url"),
@@ -171,8 +191,6 @@ func (c *Config) validate() error {
 		{c.DB.DBName, "database.dbname"},
 		{c.JWT.Secret, "jwt.secret"},
 		{c.Encrypt.Key, "encrypt.key"},
-		{c.Midtrans.ServerKey, "midtrans.server_key"},
-		{c.Midtrans.ClientKey, "midtrans.client_key"},
 		{c.FirebaseStr.GOOGLE_APPLICATION_CREDENTIALS, "firebase.google_application_credentials"},
 	}
 

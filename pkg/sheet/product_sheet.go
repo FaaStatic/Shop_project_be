@@ -195,11 +195,3 @@ func parseFloat(s string) (float64, error) {
 	}
 	return strconv.ParseFloat(s, 64)
 }
-
-// parseInt: an empty string is treated as 0.
-func parseInt(s string) (int, error) {
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(s)
-}

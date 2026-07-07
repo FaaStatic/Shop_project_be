@@ -124,7 +124,7 @@ func (h *PaymentHandler) Notification(c fiber.Ctx) error {
 	if err := h.usecase.HandleNotification(c.Context(), &req); err != nil {
 		// Invalid signature → 403 (do not retry). Other errors → 500 so
 		// Midtrans resends the notification.
-		if err.Error() == "invalid signature" {
+		if errors.Is(err, domain.ErrInvalidSignature) {
 			return response.Error(c, fiber.StatusForbidden, "invalid signature", err)
 		}
 		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)

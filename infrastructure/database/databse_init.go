@@ -33,10 +33,31 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 	if err != nil {
 		panic("Failed to get sql.DB!")
 	}
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	log.Info("Database PostgreSQL Connected", zap.String("host", config.Host))
+
+	// Pool sizing: use config overrides when provided, else the previous
+	// defaults (unchanged behavior). Under prefork each process owns a pool, so
+	// max_open_conns should be tuned so N processes stay within the database's
+	// max_connections.
+	maxOpen := 100
+	if config.MaxOpenConns > 0 {
+		maxOpen = config.MaxOpenConns
+	}
+	maxIdle := 10
+	if config.MaxIdleConns > 0 {
+		maxIdle = config.MaxIdleConns
+	}
+	connLifetime := time.Hour
+	if config.ConnMaxLifetimeMinutes > 0 {
+		connLifetime = time.Duration(config.ConnMaxLifetimeMinutes) * time.Minute
+	}
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetConnMaxLifetime(connLifetime)
+	log.Info("Database PostgreSQL Connected",
+		zap.String("host", config.Host),
+		zap.Int("max_open_conns", maxOpen),
+		zap.Int("max_idle_conns", maxIdle),
+	)
 
 	return db, nil
 

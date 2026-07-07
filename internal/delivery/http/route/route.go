@@ -23,8 +23,11 @@ type Handlers struct {
 }
 
 // New builds the route registrar. The /auth endpoints are public; the rest
-// are under the /api group protected by JWT.
-func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log *zap.Logger) func(router fiber.Router) {
+// are under the /api group protected by JWT. midtransConfigured gates the
+// online-payment routes: when false (keys absent from config), those routes
+// stay registered but respond 503 instead of running against a
+// half-configured gateway — missing optional config must not crash the app.
+func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log *zap.Logger, midtransConfigured bool) func(router fiber.Router) {
 	return func(router fiber.Router) {
 		// Public. Register only creates staff accounts; admin/superadmin
 		// are inserted directly via the DB.
@@ -32,9 +35,11 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		auth.Post("/login", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Login)
 		auth.Post("/register", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Register)
 
+		requireMidtrans := middleware.RequireFeature(midtransConfigured, "online payment")
+
 		// The Midtrans webhook is PUBLIC (no JWT). Its authenticity is validated
 		// via signature_key in the usecase. Register this URL in the Midtrans dashboard.
-		router.Post("/payments/notification", limiter.New(middleware.GetWebhookLimiter(storage)), h.Payment.Notification)
+		router.Post("/payments/notification", requireMidtrans, limiter.New(middleware.GetWebhookLimiter(storage)), h.Payment.Notification)
 
 		// Terproteksi JWT
 		api := router.Group("/api", jwtMw.Auth(log))
@@ -60,7 +65,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		transactions.Get("/:id", h.Transaction.Get)
 		transactions.Delete("", onlySuper, h.Transaction.Delete)
 
-		payments := api.Group("/payments")
+		payments := api.Group("/payments", requireMidtrans)
 		payments.Post("/qris", h.Payment.ChargeQris)
 		payments.Post("/va", h.Payment.ChargeVA)
 		payments.Get("/:order_id/status", h.Payment.Status)

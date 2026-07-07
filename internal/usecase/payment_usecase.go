@@ -156,7 +156,7 @@ func (u *paymentUsecase) HandleNotification(ctx context.Context, notif *requestd
 
 	if !u.gateway.VerifySignature(notif.OrderID, notif.StatusCode, notif.GrossAmount, notif.SignatureKey) {
 		u.log.Warn("invalid midtrans signature", zap.String("order_id", notif.OrderID))
-		return fmt.Errorf("invalid signature")
+		return domain.ErrInvalidSignature
 	}
 
 	payment, err := u.paymentRepo.GetByOrderID(ctx, notif.OrderID)
