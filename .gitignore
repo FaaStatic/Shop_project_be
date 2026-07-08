@@ -5,6 +5,7 @@ logs/
 storage/
 .config.development.yaml
 .config.production.yaml
+.config.staging.yaml
 .config.yaml
 .claude
 .DS_Store
