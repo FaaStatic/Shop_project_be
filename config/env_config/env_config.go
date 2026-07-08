@@ -101,11 +101,17 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 			log.Error("config loader panic", zap.Any("recover", r))
 		}
 	}()
+
 	env := os.Getenv("APP_ENV")
-	if env == "development" {
+	switch env {
+	case "development":
 		viper.SetConfigName(".config.development")
-	} else {
+	case "production":
 		viper.SetConfigName(".config.production")
+	case "staging":
+		viper.SetConfigName(".config.staging")
+	default:
+		log.Fatal("APP_ENV must be 'development' or 'production'", zap.String("got", env))
 	}
 
 	viper.SetConfigType("yaml")
