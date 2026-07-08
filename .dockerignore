@@ -1,0 +1,5 @@
+.config.yaml
+.config.development.yaml
+.config.production.yaml
+.env
+.git

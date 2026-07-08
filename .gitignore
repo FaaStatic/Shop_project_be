@@ -26,3 +26,5 @@ shop_project_be
 .remember
 docs
 *.xlsx
+Dockerfile
+docker-compose.yml
