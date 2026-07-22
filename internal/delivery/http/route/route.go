@@ -79,6 +79,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 
 		debts := api.Group("/debts")
 		debts.Post("", h.Debt.Add)
+		debts.Post("/pay", h.Debt.Pay)
 		debts.Get("", h.Debt.List)
 		debts.Get("/report", onlySuper, h.Debt.Report)
 		debts.Get("/:id", h.Debt.Get)

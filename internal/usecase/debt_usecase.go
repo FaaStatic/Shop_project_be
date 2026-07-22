@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
@@ -184,6 +185,51 @@ func (d *debtUsecase) GetDebtCustomer(ctx context.Context, request *requestdto.G
 
 	response := toDebtResponse(debt)
 	return &response, nil
+}
+
+// PayDebtCash implements [domain.DebtUseCase].
+// Records a cash payment the customer makes at the register toward an
+// existing debt. The cashier (Flutter app) enters how much cash was received
+// right now (request.NominalBayar) — it does not have to cover the full
+// remaining balance. A nominal greater than what is still owed is rejected
+// so the cashier can correct the amount before it's saved.
+func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtPayment) (*responsedto.DebtPaymentResponse, error) {
+	debtID, err := uuid.Parse(request.DebtID)
+	if err != nil {
+		d.log.Error("failed to parse debt id", zap.Error(err))
+		return nil, fmt.Errorf("invalid debt id format")
+	}
+	userID, err := uuid.Parse(request.UserID)
+	if err != nil {
+		d.log.Error("failed to parse user id", zap.Error(err))
+		return nil, fmt.Errorf("invalid user id format")
+	}
+	if request.NominalBayar <= 0 {
+		return nil, fmt.Errorf("nominal_bayar must be greater than 0")
+	}
+
+	payment := &domain.DebtPayments{UserID: userID, NominalBayar: request.NominalBayar}
+	result, err := d.debtRepo.PayDebt(ctx, debtID, payment)
+	if err != nil {
+		d.log.Error("failed to pay debt", zap.Error(err))
+		if errors.Is(err, domain.ErrInternal) {
+			return nil, fmt.Errorf("failed to record debt payment")
+		}
+		// Business errors (not found, already paid off, overpayment) pass
+		// through unwrapped so the cashier sees why it was rejected.
+		return nil, err
+	}
+
+	return &responsedto.DebtPaymentResponse{
+		DebtId:                result.Debt.ID.String(),
+		CustomerName:          result.Debt.Customer.Name,
+		NominalBayar:          money(request.NominalBayar),
+		PreviousRemainingDebt: money(result.PreviousRemainingDebt),
+		RemainingDebt:         money(result.Debt.RemainingDebt),
+		TotalDebt:             money(result.Debt.TotalDebt),
+		Status:                result.Debt.Status.String(),
+		PaidAt:                result.PaidAt.Format(time.RFC3339),
+	}, nil
 }
 
 // PrintReportDebtCustomer implements [domain.DebtUseCase].

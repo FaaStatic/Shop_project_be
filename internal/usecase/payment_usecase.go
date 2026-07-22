@@ -428,7 +428,7 @@ func (u *paymentUsecase) finalizeSuccess(ctx context.Context, payment *domain.Pa
 		if payment.StockReserved {
 			addTrx = u.trxUsecase.AddPrepaidTransaction
 		}
-		if err := addTrx(ctx, addReq); err != nil {
+		if _, err := addTrx(ctx, addReq); err != nil {
 			return fmt.Errorf("failed to create transaction from payment: %w", err)
 		}
 		existing, err = u.trxRepo.CheckTransactionByNoInvoice(ctx, payment.OrderID)

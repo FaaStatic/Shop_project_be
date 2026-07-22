@@ -39,9 +39,12 @@ func (t *transactionRepository) CheckTransactionByNoInvoice(ctx context.Context,
 // CreateTransactionAtomic implements [domain.TransactionRepository].
 // Decrements each product's stock (with a row lock), upserts the customer's debt
 // if it's a debt payment, then saves the transaction — all in one
-// DB transaction so they succeed/roll back together.
-func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool, deductStock bool) error {
-	return runTxDB(ctx, t.db, func(tx *gorm.DB) error {
+// DB transaction so they succeed/roll back together. Returns a
+// TransactionDebtSnapshot only for a hutang sale linked to a customer; nil
+// for a cash/non-debt sale, which never touches the debts table.
+func (t *transactionRepository) CreateTransaction(ctx context.Context, transaction *domain.Transactions, isHutang bool, deductStock bool) (*domain.TransactionDebtSnapshot, error) {
+	var debtSnapshot *domain.TransactionDebtSnapshot
+	err := runTxDB(ctx, t.db, func(tx *gorm.DB) error {
 		// 1. Decrement each product's stock with a lock to avoid a stock race.
 		// deductStock is false for transactions from online payments: their stock
 		// was already deducted at charge reservation, don't deduct it twice.
@@ -84,8 +87,12 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 		if isHutang && transaction.CustomerID != nil {
 			var debt domain.Debts
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("customer_id = ?", *transaction.CustomerID).First(&debt).Error
+			var previousRemaining float64
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
+				// No prior debt for this customer: previousRemaining is 0 (debt
+				// is still its zero value at this point).
+				previousRemaining = debt.RemainingDebt
 
 				totalDebt := debt.TotalDebt + transaction.TotalTransaction
 				debt = domain.Debts{
@@ -100,6 +107,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 			case err != nil:
 				return internalErr(fmt.Errorf("failed to get debt: %w", err))
 			default:
+				previousRemaining = debt.RemainingDebt
 				if err := tx.Model(&domain.Debts{}).Where("id = ?", debt.ID).
 					Updates(map[string]interface{}{
 						"total_debt":     debt.TotalDebt + transaction.TotalTransaction,
@@ -108,8 +116,21 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 					}).Error; err != nil {
 					return internalErr(fmt.Errorf("failed to update debt: %w", err))
 				}
+				// Reflect the SQL-side update locally so the snapshot below
+				// (and the caller) sees the post-update values.
+				debt.TotalDebt += transaction.TotalTransaction
+				debt.RemainingDebt += transaction.TotalTransaction
+				debt.Status = enum.BELUM_LUNAS
 			}
 			transaction.DebtID = &debt.ID
+			debtSnapshot = &domain.TransactionDebtSnapshot{
+				DebtID:                debt.ID,
+				PreviousRemainingDebt: previousRemaining,
+				AmountAdded:           transaction.TotalTransaction,
+				TotalDebt:             debt.TotalDebt,
+				RemainingDebt:         debt.RemainingDebt,
+				Status:                debt.Status,
+			}
 		}
 
 		// 3. Save the transaction along with its details.
@@ -118,6 +139,10 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return debtSnapshot, nil
 }
 
 // DeleteTransaction implements [domain.TransactionRepository].

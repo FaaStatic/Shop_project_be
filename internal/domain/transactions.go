@@ -100,11 +100,27 @@ type DailyProductSoldReport struct {
 	Total       float64   `gorm:"column:total"`
 }
 
+// TransactionDebtSnapshot captures how a hutang (debt) sale affected the
+// customer's debt balance, everything a receipt needs to show "sisa hutang
+// sebelumnya" vs "sisa hutang sekarang". CreateTransaction only returns this
+// when the sale is a debt sale linked to a customer; a cash/non-debt sale
+// returns nil since it never touches the debts table.
+type TransactionDebtSnapshot struct {
+	DebtID                uuid.UUID
+	PreviousRemainingDebt float64         // remaining debt before this transaction
+	AmountAdded           float64         // this transaction's total, added to the debt
+	TotalDebt             float64         // cumulative total ever owed, after this transaction
+	RemainingDebt         float64         // remaining owed, after this transaction
+	Status                enum.DebtStatus // BELUM_LUNAS/LUNAS after this transaction
+}
+
 type TransactionRepository interface {
 	// CreateTransaction saves the transaction + details atomically. deductStock
 	// is false for transactions from online payments whose stock was already
-	// reserved at charge time (must not be deducted twice).
-	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool, deductStock bool) error
+	// reserved at charge time (must not be deducted twice). Returns a
+	// TransactionDebtSnapshot only when isHutang is true and the transaction is
+	// linked to a customer (nil for cash/non-debt sales).
+	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool, deductStock bool) (*TransactionDebtSnapshot, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
 	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
@@ -117,11 +133,14 @@ type TransactionRepository interface {
 }
 
 type TransactionUsecase interface {
-	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
+	// AddTransaction returns an AddTransactionResponse whose DebtInfo is set
+	// only when the sale is hutang (debt); a cash/transfer/qris sale leaves
+	// DebtInfo nil.
+	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error)
 	// AddPrepaidTransaction is like AddTransaction but does NOT deduct stock —
 	// only for transactions from online payments whose stock was already
 	// reserved. Do not expose it to the HTTP handler.
-	AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error
+	AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error)
 	GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error)
 	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*responsedto.GetAllTransactionResponse, error)
 	DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error

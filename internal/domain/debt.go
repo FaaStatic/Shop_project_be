@@ -61,12 +61,32 @@ type FilterDebt struct {
 	Search     string                `json:"search"`
 }
 
+// DebtPaymentResult is the before/after state around a single cash payment —
+// everything a payment receipt (struk) needs: what was owed before, what was
+// paid, and what remains. Debt reflects the debt row after the payment is
+// applied; PDF rendering itself is the frontend's job, this only supplies
+// the raw numbers.
+type DebtPaymentResult struct {
+	Debt                  *Debts
+	PreviousRemainingDebt float64
+	PaymentID             uuid.UUID
+	PaidAt                time.Time
+}
+
 type DebtRepository interface {
 	AddDebt(ctx context.Context, debt *Debts) error
 	DeleteDebt(ctx context.Context, id uuid.UUID) error
 	GetAllDebt(ctx context.Context, filter FilterDebt) (*DebtsPaginated, error)
 	UpdateDebt(ctx context.Context, id uuid.UUID, debt *Debts) error
 	GetDebtByID(ctx context.Context, id uuid.UUID) (*Debts, error)
+	// PayDebt records a cash payment against a debt atomically: locks the debt
+	// row, rejects a nominal greater than what is still owed, decrements
+	// RemainingDebt by payment.NominalBayar, flips Status to LUNAS once
+	// RemainingDebt reaches zero, and inserts the DebtPayments history row —
+	// all in one DB transaction. payment.DebtID is set by the implementation;
+	// callers only need to fill UserID and NominalBayar. Returns the debt's
+	// before/after state (DebtPaymentResult) for building a payment receipt.
+	PayDebt(ctx context.Context, debtID uuid.UUID, payment *DebtPayments) (*DebtPaymentResult, error)
 }
 
 type DebtUseCase interface {
@@ -75,4 +95,9 @@ type DebtUseCase interface {
 	GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListReponseDto, error)
 	GetDebtCustomer(ctx context.Context, request *requestdto.GetDebtRequest) (*responsedto.DebtResponseDto, error)
 	PrintReportDebtCustomer(ctx context.Context, request *requestdto.PrintDebtReport) (*responsedto.PrintDebtCustomerResponse, error)
+	// PayDebtCash records a cash payment the customer makes at the register
+	// toward an existing debt. This is the "customer pays hutang in cash"
+	// flow: the cashier (frontend) enters how much cash was received now: it
+	// does not have to be the full remaining balance.
+	PayDebtCash(ctx context.Context, request *requestdto.DebtPayment) (*responsedto.DebtPaymentResponse, error)
 }

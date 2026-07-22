@@ -59,18 +59,18 @@ func ensureInvoicePrefix(noInvoice string) string {
 }
 
 // AddTransaction implements [domain.TransactionUsecase].
-func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
+func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error) {
 	return t.addTransaction(ctx, dto, true)
 }
 
 // AddPrepaidTransaction implements [domain.TransactionUsecase]: a transaction from
 // an online payment whose stock was already reserved at charge time, so stock
 // is not deducted again here.
-func (t *transactionUsecase) AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
+func (t *transactionUsecase) AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error) {
 	return t.addTransaction(ctx, dto, false)
 }
 
-func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest, deductStock bool) error {
+func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest, deductStock bool) (*responsedto.AddTransactionResponse, error) {
 	// Match the payment format: no_invoice always starts with "INV-".
 	// Idempotent — an invoice from a payment (order_id) already prefixed with INV-
 	// is not duplicated into "INV-INV-...".
@@ -79,27 +79,27 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	check, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, noInvoice)
 	if err != nil {
 		t.log.Error("failed to check transaction", zap.Error(err))
-		return fmt.Errorf("failed to check transaction")
+		return nil, fmt.Errorf("failed to check transaction")
 	}
 	if check != nil {
 		t.log.Error("transaction with no invoice %s already exists", zap.String("no_invoice", noInvoice))
-		return fmt.Errorf("transaction with no invoice %s already exists", noInvoice)
+		return nil, fmt.Errorf("transaction with no invoice %s already exists", noInvoice)
 	}
 
 	userId, err := uuid.Parse(dto.UserId)
 	if err != nil {
 		t.log.Error("failed to parse user id", zap.Error(err))
-		return fmt.Errorf("invalid user id format")
+		return nil, fmt.Errorf("invalid user id format")
 	}
 
 	user, err := t.userRepo.GetUserById(ctx, userId)
 	if err != nil {
 		t.log.Error("failed to get user", zap.Error(err))
-		return fmt.Errorf("failed to get user")
+		return nil, fmt.Errorf("failed to get user")
 	}
 	if user == nil {
 		t.log.Error("user not found", zap.String("user_id", dto.UserId))
-		return fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found")
 	}
 
 	var customerId *uuid.UUID
@@ -107,7 +107,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		parsedID, err := uuid.Parse(*dto.CustomerId)
 		if err != nil {
 			t.log.Error("failed to parse customer ID", zap.Error(err))
-			return fmt.Errorf("failed to parse customer ID")
+			return nil, fmt.Errorf("failed to parse customer ID")
 		}
 		customerId = &parsedID
 	}
@@ -115,7 +115,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	paymentType, err := enum.ParseMoneyPayment(dto.TypePayment)
 	if err != nil {
 		t.log.Error("failed to parse payment type", zap.Error(err))
-		return fmt.Errorf("failed to parse payment type")
+		return nil, fmt.Errorf("failed to parse payment type")
 	}
 	isHutang := paymentType.String() == "hutang"
 
@@ -124,7 +124,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	if isTransfer {
 		if dto.Bank == nil || (*dto.Bank != "bca" && *dto.Bank != "mandiri") {
 			t.log.Error("bank is required for transfer", zap.String("no_invoice", noInvoice))
-			return fmt.Errorf("bank (bca/mandiri) is required for transfer payment")
+			return nil, fmt.Errorf("bank (bca/mandiri) is required for transfer payment")
 		}
 		bank = dto.Bank
 	}
@@ -137,16 +137,16 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		productId, err := uuid.Parse(detail.ProductId)
 		if err != nil {
 			t.log.Error("failed to parse product id", zap.Error(err))
-			return fmt.Errorf("invalid product id format")
+			return nil, fmt.Errorf("invalid product id format")
 		}
 		product, err := t.productRepo.GetProduct(ctx, productId)
 		if err != nil {
 			t.log.Error("failed to get product", zap.Error(err))
-			return fmt.Errorf("failed to get product")
+			return nil, fmt.Errorf("failed to get product")
 		}
 		if product == nil {
 			t.log.Error("product not found", zap.String("product_id", detail.ProductId))
-			return fmt.Errorf("product not found")
+			return nil, fmt.Errorf("product not found")
 		}
 
 		unitPrice := product.SellingPrice
@@ -158,7 +158,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		if product.ProductType.IsDigital() {
 			if detail.Destination == nil || strings.TrimSpace(*detail.Destination) == "" {
 				t.log.Error("destination required for digital product", zap.String("product_id", detail.ProductId))
-				return fmt.Errorf("destination is required for digital product %s", detail.ProductId)
+				return nil, fmt.Errorf("destination is required for digital product %s", detail.ProductId)
 			}
 			d := strings.TrimSpace(*detail.Destination)
 			destination = &d
@@ -181,16 +181,16 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	if isHutang {
 		if customerId == nil {
 			t.log.Error("customer id is required for hutang")
-			return fmt.Errorf("customer id is required for hutang")
+			return nil, fmt.Errorf("customer id is required for hutang")
 		}
 		exists, err := t.customerRepo.ExistsCustomer(ctx, *customerId)
 		if err != nil {
 			t.log.Error("failed to get customer", zap.Error(err))
-			return fmt.Errorf("failed to get customer")
+			return nil, fmt.Errorf("failed to get customer")
 		}
 		if !exists {
 			t.log.Error("customer not found", zap.String("customer_id", *dto.CustomerId))
-			return fmt.Errorf("customer not found")
+			return nil, fmt.Errorf("customer not found")
 		}
 	}
 
@@ -205,18 +205,37 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	}
 
 	// Stock is decremented, the debt is upserted, and the transaction is saved in one
-	// DB transaction: all succeed or are rolled back together.
-	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock); err != nil {
+	// DB transaction: all succeed or are rolled back together. debtSnapshot is
+	// nil unless this is a hutang sale linked to a customer.
+	debtSnapshot, err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock)
+	if err != nil {
 		t.log.Error("failed to create transaction", zap.Error(err))
 		// Infrastructure/DB failures must not leak driver detail to the client;
 		// business errors (insufficient stock, product not found) pass through.
 		if errors.Is(err, domain.ErrInternal) {
-			return fmt.Errorf("failed to create transaction")
+			return nil, fmt.Errorf("failed to create transaction")
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	resp := &responsedto.AddTransactionResponse{
+		TransactionID:    data.ID.String(),
+		NoInvoice:        data.NoInvoice,
+		TotalTransaction: data.TotalTransaction,
+		PaymentType:      paymentType.String(),
+	}
+	if debtSnapshot != nil {
+		resp.DebtInfo = &responsedto.DebtTransactionInfo{
+			DebtID:                debtSnapshot.DebtID.String(),
+			PreviousRemainingDebt: money(debtSnapshot.PreviousRemainingDebt),
+			AmountAdded:           money(debtSnapshot.AmountAdded),
+			TotalDebt:             money(debtSnapshot.TotalDebt),
+			RemainingDebt:         money(debtSnapshot.RemainingDebt),
+			Status:                debtSnapshot.Status.String(),
+		}
+	}
+
+	return resp, nil
 }
 
 // DeleteTransaction implements [domain.TransactionUsecase].

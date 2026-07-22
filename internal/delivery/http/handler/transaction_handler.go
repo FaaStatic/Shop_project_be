@@ -44,10 +44,11 @@ func (h *TransactionHandler) Add(c fiber.Ctx) error {
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
-	if err := h.trxUsecase.AddTransaction(c.Context(), &req); err != nil {
+	result, err := h.trxUsecase.AddTransaction(c.Context(), &req)
+	if err != nil {
 		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
 	}
-	return response.Success(c, fiber.StatusCreated, "transaction created", nil)
+	return response.Success(c, fiber.StatusCreated, "transaction created", result)
 }
 
 // List godoc

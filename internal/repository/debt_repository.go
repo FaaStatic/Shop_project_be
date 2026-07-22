@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type debtRepository struct {
@@ -64,6 +66,63 @@ func (d *debtRepository) DeleteDebt(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("debt with id %s not found", id)
 	}
 	return nil
+}
+
+// PayDebt implements [domain.DebtRepository].
+// Preloads Customer (a receipt needs the customer's name) alongside the
+// locked debt row.
+func (d *debtRepository) PayDebt(ctx context.Context, debtID uuid.UUID, payment *domain.DebtPayments) (*domain.DebtPaymentResult, error) {
+	var result domain.DebtPaymentResult
+	err := runTxDB(ctx, d.db, func(tx *gorm.DB) error {
+		var debt domain.Debts
+		if err := tx.Preload("Customer").Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", debtID).First(&debt).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("debt with id %s not found", debtID)
+			}
+			return internalErr(fmt.Errorf("failed to lock debt: %w", err))
+		}
+		if debt.RemainingDebt <= 0 || debt.Status == enum.LUNAS {
+			return fmt.Errorf("debt has already been fully paid")
+		}
+		if payment.NominalBayar > debt.RemainingDebt {
+			return fmt.Errorf("payment amount (%.2f) exceeds remaining debt (%.2f)", payment.NominalBayar, debt.RemainingDebt)
+		}
+		previousRemaining := debt.RemainingDebt
+
+		newRemaining := debt.RemainingDebt - payment.NominalBayar
+		status := enum.BELUM_LUNAS
+		if newRemaining <= 0 {
+			newRemaining = 0
+			status = enum.LUNAS
+		}
+		if err := tx.Model(&domain.Debts{}).Where("id = ?", debt.ID).
+			Updates(map[string]interface{}{
+				"remaining_debt": newRemaining,
+				"status":         status,
+			}).Error; err != nil {
+			return internalErr(fmt.Errorf("failed to update debt: %w", err))
+		}
+
+		payment.DebtID = debt.ID
+		if err := tx.Create(payment).Error; err != nil {
+			return internalErr(fmt.Errorf("failed to record debt payment: %w", err))
+		}
+
+		debt.RemainingDebt = newRemaining
+		debt.Status = status
+		result = domain.DebtPaymentResult{
+			Debt:                  &debt,
+			PreviousRemainingDebt: previousRemaining,
+			PaymentID:             payment.ID,
+			PaidAt:                payment.TanggalBayar,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // GetAllDebt implements [domain.DebtRepository].

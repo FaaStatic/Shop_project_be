@@ -126,6 +126,35 @@ func (h *DebtHandler) Get(c fiber.Ctx) error {
 	return response.Success(c, fiber.StatusOK, "debt found", result)
 }
 
+// Pay godoc
+//
+//	@Summary		Pay debt in cash
+//	@Description	Records a cash payment made by a customer at the register toward an existing debt. The nominal does not have to cover the full remaining balance.
+//	@Tags			Debts
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.DebtPayment	true	"Cash payment data"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/debts/pay [post]
+func (h *DebtHandler) Pay(c fiber.Ctx) error {
+	var req requestdto.DebtPayment
+	if err := bindBody(c, &req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
+	}
+	req.UserID = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
+	result, err := h.usecase.PayDebtCash(c.Context(), &req)
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, err.Error(), err)
+	}
+	return response.Success(c, fiber.StatusOK, "debt payment recorded", result)
+}
+
 // Report godoc
 //
 //	@Summary		Customer debt report
