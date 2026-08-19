@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+
 	envconfig "shop_project_be/config/env_config"
 	zaplogger "shop_project_be/infrastructure/logger"
 	"time"
@@ -31,7 +33,7 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		panic("Failed to get sql.DB!")
+		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
 	// Pool sizing: use config overrides when provided, else the previous

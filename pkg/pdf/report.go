@@ -24,9 +24,9 @@ type MonthReportData struct {
 	Month            int
 	Year             int
 	TotalTransaction int64                      // number of transactions in a month
-	TotalRevenue     float64                    // pendapatan masuk (selain hutang)
-	TotalDebt        float64                    // value of debt transactions (not yet revenue)
-	GrandTotal       float64                    // total seluruh nilai transaksi
+	TotalRevenue     int64                      // pendapatan masuk (selain hutang)
+	TotalDebt        int64                      // value of debt transactions (not yet revenue)
+	GrandTotal       int64                      // total seluruh nilai transaksi
 	Daily            []MonthReportDailyRow      // rincian per hari
 	ProductsSold     []MonthReportProductRow    // recap of goods sold in a month
 	DailyProducts    []MonthReportDailyProducts // goods sold per day
@@ -37,16 +37,16 @@ type MonthReportData struct {
 type MonthReportDailyRow struct {
 	Date             time.Time
 	TotalTransaction int64
-	Revenue          float64 // pendapatan masuk (selain hutang)
-	Debt             float64 // nilai transaksi hutang
-	Total            float64 // total seluruh nilai transaksi
+	Revenue          int64 // pendapatan masuk (selain hutang)
+	Debt             int64 // nilai transaksi hutang
+	Total            int64 // total seluruh nilai transaksi
 }
 
 // MonthReportProductRow is a single row of the products-sold recap.
 type MonthReportProductRow struct {
 	ProductName string
 	Qty         float64
-	Total       float64
+	Total       int64
 }
 
 // MonthReportDailyProducts is the list of products sold on a single date.
@@ -59,8 +59,8 @@ type MonthReportDailyProducts struct {
 type TransactionReportItem struct {
 	ProductName string
 	Qty         float64
-	Price       float64
-	Subtotal    float64
+	Price       int64
+	Subtotal    int64
 }
 
 // TransactionReportData is the data needed to build a transaction receipt.
@@ -72,7 +72,7 @@ type TransactionReportData struct {
 	PaymentType string
 	CreatedAt   time.Time
 	Items       []TransactionReportItem
-	Total       float64
+	Total       int64
 	GeneratedAt time.Time
 }
 

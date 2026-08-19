@@ -118,7 +118,7 @@ func TestUpdateProductShopWithLock_BuildsPartialFieldMap(t *testing.T) {
 
 	id := uuid.New()
 	name := "Gula Baru"
-	price := 15000.0
+	price := int64(15000)
 	req := &requestdto.UpdateProduct{ID: id.String(), ProductName: &name, SellingPrice: &price}
 
 	if err := u.UpdateProductShopWithLock(context.Background(), req, 5); err != nil {

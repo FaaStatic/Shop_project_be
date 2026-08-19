@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
@@ -45,7 +46,7 @@ func (c *customerUsecase) AddCustomerShop(ctx context.Context, request *requestd
 	}
 	if err := c.customerRepo.AddCustomer(ctx, customer); err != nil {
 		c.log.Error("failed to add customer", zap.Error(err))
-		return fmt.Errorf("failed to add customer")
+		return fmt.Errorf("failed to add customer: %w", domain.ErrInternal)
 	}
 	return nil
 }
@@ -55,11 +56,14 @@ func (c *customerUsecase) DeleteCustomerShop(ctx context.Context, request *reque
 	id, err := uuid.Parse(request.CustomerId)
 	if err != nil {
 		c.log.Error("failed to parse customer id", zap.Error(err))
-		return fmt.Errorf("invalid customer id format")
+		return domain.InvalidID("invalid customer id format")
 	}
 	if err := c.customerRepo.DeleteCustomer(ctx, id); err != nil {
 		c.log.Error("failed to delete customer", zap.Error(err))
-		return fmt.Errorf("failed to delete customer")
+		if errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("failed to delete customer: %w", domain.ErrInternal)
 	}
 	return nil
 }
@@ -69,17 +73,20 @@ func (c *customerUsecase) GetCustomerShop(ctx context.Context, request *requestd
 	id, err := uuid.Parse(request.CustomerId)
 	if err != nil {
 		c.log.Error("failed to parse customer id", zap.Error(err))
-		return nil, fmt.Errorf("invalid customer id format")
+		return nil, domain.InvalidID("invalid customer id format")
 	}
 
 	customers, err := c.customerRepo.GetCustomer(ctx, id)
 	if err != nil {
 		c.log.Error("failed to get customer", zap.Error(err))
-		return nil, fmt.Errorf("failed to get customer")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get customer: %w", domain.ErrInternal)
 	}
 	if customers == nil || len(*customers) == 0 {
 		c.log.Error("customer not found", zap.String("customer_id", request.CustomerId))
-		return nil, fmt.Errorf("customer not found")
+		return nil, domain.NotFound("customer not found")
 	}
 
 	response := toCustomerResponse(&(*customers)[0])
@@ -106,12 +113,12 @@ func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requ
 		afterTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
 		if err != nil {
 			c.log.Error("failed to parse after_time", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_time format")
+			return nil, domain.InvalidID("invalid after_time format")
 		}
 		afterUUID, err := uuid.Parse(afterId)
 		if err != nil {
 			c.log.Error("failed to parse after_id", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_id format")
+			return nil, domain.InvalidID("invalid after_id format")
 		}
 		cursor = &paginated.CursorMeta{AfterTime: afterTime, AfterID: afterUUID}
 	}
@@ -126,7 +133,7 @@ func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requ
 	result, err := c.customerRepo.GetAllCustomer(ctx, filter)
 	if err != nil {
 		c.log.Error("failed to get customers", zap.Error(err))
-		return nil, fmt.Errorf("failed to get customers")
+		return nil, fmt.Errorf("failed to get customers: %w", domain.ErrInternal)
 	}
 
 	responses := make([]responsedto.CustomerDtoResponse, 0, len(result.DataItem))
@@ -138,10 +145,10 @@ func (c *customerUsecase) GetListCustomerShop(ctx context.Context, request *requ
 	nextId, nextTime := result.Cursor.Encode()
 
 	return &responsedto.ListCustomerDtoResponse{
-		AfterId:      nextId,
-		AfterTime:    nextTime,
-		HasNext:      result.HasNext,
-		CustomerList: responses,
+		AfterId:       nextId,
+		AfterTime:     nextTime,
+		HasNext:       result.HasNext,
+		CustomerLists: responses,
 	}, nil
 }
 
@@ -150,7 +157,7 @@ func (c *customerUsecase) UpdateCustomerShop(ctx context.Context, request *reque
 	id, err := uuid.Parse(request.CustomerId)
 	if err != nil {
 		c.log.Error("failed to parse customer id", zap.Error(err))
-		return fmt.Errorf("invalid customer id format")
+		return domain.InvalidID("invalid customer id format")
 	}
 
 	// Only populated fields are updated (Updates with a struct ignores zero
@@ -162,7 +169,10 @@ func (c *customerUsecase) UpdateCustomerShop(ctx context.Context, request *reque
 	}
 	if err := c.customerRepo.UpdateCustomer(ctx, id, customer); err != nil {
 		c.log.Error("failed to update customer", zap.Error(err))
-		return fmt.Errorf("failed to update customer")
+		if errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("failed to update customer: %w", domain.ErrInternal)
 	}
 	return nil
 }

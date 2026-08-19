@@ -34,6 +34,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		auth := router.Group("/auth")
 		auth.Post("/login", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Login)
 		auth.Post("/register", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Register)
+		auth.Post("/refresh", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Refresh)
 
 		requireMidtrans := middleware.RequireFeature(midtransConfigured, "online payment")
 
@@ -53,9 +54,9 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		products.Post("/bulk", h.Product.AddBulk)
 		products.Get("", h.Product.List)
 		products.Get("/:id", h.Product.Get)
-		products.Put("", onlySuper, h.Product.Update)
+		products.Put("/:id", onlySuper, h.Product.Update)
 		products.Patch("/stock", h.Product.UpdateStock)
-		products.Delete("", onlySuper, h.Product.Delete)
+		products.Delete("/:id", onlySuper, h.Product.Delete)
 
 		transactions := api.Group("/transactions")
 		transactions.Post("", h.Transaction.Add)
@@ -63,7 +64,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		transactions.Get("/report/month", onlySuper, h.Transaction.ReportMonth)
 		transactions.Get("/report/transaction", h.Transaction.ReportTransaction)
 		transactions.Get("/:id", h.Transaction.Get)
-		transactions.Delete("", onlySuper, h.Transaction.Delete)
+		transactions.Delete("/:id", onlySuper, h.Transaction.Delete)
 
 		payments := api.Group("/payments", requireMidtrans)
 		payments.Post("/qris", h.Payment.ChargeQris)
@@ -74,8 +75,8 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		customers.Post("", h.Customer.Add)
 		customers.Get("", h.Customer.List)
 		customers.Get("/:id", h.Customer.Get)
-		customers.Put("", h.Customer.Update)
-		customers.Delete("", onlySuper, h.Customer.Delete)
+		customers.Put("/:id", h.Customer.Update)
+		customers.Delete("/:id", onlySuper, h.Customer.Delete)
 
 		debts := api.Group("/debts")
 		debts.Post("", h.Debt.Add)
@@ -83,7 +84,7 @@ func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log
 		debts.Get("", h.Debt.List)
 		debts.Get("/report", onlySuper, h.Debt.Report)
 		debts.Get("/:id", h.Debt.Get)
-		debts.Delete("", onlySuper, h.Debt.Delete)
+		debts.Delete("/:id", onlySuper, h.Debt.Delete)
 
 		fcm := api.Group("/fcm")
 		fcm.Post("/register", h.Fcm.Register)

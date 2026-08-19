@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"math"
 	"os"
 	"testing"
 
@@ -81,20 +82,21 @@ func seedUserProductCustomer(t *testing.T, db *gorm.DB, stock float64) (*domain.
 	return user, product, customer
 }
 
-func newTrx(user *domain.Users, product *domain.Products, customer *domain.Customers, paymentType enum.MoneyPayment, qty, unitPrice float64) *domain.Transactions {
+func newTrx(user *domain.Users, product *domain.Products, customer *domain.Customers, paymentType enum.MoneyPayment, qty float64, unitPrice int64) *domain.Transactions {
 	var customerID *uuid.UUID
 	if customer != nil {
 		id := customer.ID
 		customerID = &id
 	}
+	subtotal := int64(math.Round(qty * float64(unitPrice)))
 	return &domain.Transactions{
 		NoInvoice:        "INV-" + uuid.NewString(),
 		UserID:           user.ID,
 		CustomerID:       customerID,
 		PaymentType:      paymentType,
-		TotalTransaction: qty * unitPrice,
+		TotalTransaction: subtotal,
 		TransactionDetail: []domain.TransactionsDetail{
-			{ProductID: product.ID, Price: unitPrice, PriceDebt: unitPrice, Qty: qty, Subtotal: qty * unitPrice},
+			{ProductID: product.ID, Price: unitPrice, PriceDebt: unitPrice, Qty: qty, Subtotal: subtotal},
 		},
 	}
 }

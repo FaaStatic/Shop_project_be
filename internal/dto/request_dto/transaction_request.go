@@ -5,7 +5,7 @@ type AddTransactionRequest struct {
 	TypePayment string `json:"type_payment" validate:"required,oneof=tunai hutang transfer qris"`
 	// TotalTransaction is informational only; the final value is computed server-side from
 	// the product price (see usecase.AddTransaction) so it cannot be manipulated.
-	TotalTransaction float64                       `json:"total_price,omitempty"`
+	TotalTransaction int64                         `json:"total_price,omitempty"`
 	UserId           string                        `json:"user_id" validate:"required,uuid"`
 	CustomerId       *string                       `json:"customer_id,omitempty" validate:"omitempty,uuid"`
 	Bank             *string                       `json:"bank,omitempty" validate:"omitempty,oneof=bca mandiri"`
@@ -18,11 +18,11 @@ type AddTransactionDetailRequest struct {
 	Destination *string `json:"destination,omitempty"`
 	// Subtotal is ignored by the server (computed from product price × qty); left
 	// optional for backward compatibility with older payloads.
-	Subtotal float64 `json:"subtotal,omitempty"`
+	Subtotal int64 `json:"subtotal,omitempty"`
 }
 
 type GetTransactionRequest struct {
-	ID         string `query:"id" validate:"required"`
+	ID         string `query:"id" validate:"required,uuid"`
 	UserId     string `query:"user_id" validate:"required"`
 	CustomerId string `query:"customer_id,omitempty"`
 }
@@ -38,7 +38,7 @@ type FilterTransactionRequest struct {
 }
 
 type DeleteTransactionRequest struct {
-	ID string `json:"trx_id" validate:"required"`
+	ID string `json:"trx_id" validate:"required,uuid"`
 }
 
 type PrintReportTransactionRequest struct {

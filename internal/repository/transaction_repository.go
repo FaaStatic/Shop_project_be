@@ -65,7 +65,7 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 					Where("id = ?", d.ProductID).First(&product).Error; err != nil {
 					if errors.Is(err, gorm.ErrRecordNotFound) {
-						return fmt.Errorf("product with id %s not found", d.ProductID)
+						return domain.NotFound(fmt.Sprintf("product with id %s not found", d.ProductID))
 					}
 					return internalErr(fmt.Errorf("failed to lock product: %w", err))
 				}
@@ -83,18 +83,21 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 			}
 		}
 
-		// 2. For debt: create a new debt or add to the customer's existing debt.
+		// 2. For debt: add to the customer's still-open (BELUM_LUNAS) debt when one
+		// exists, otherwise create a new debt. This mirrors AddDebt so a new credit
+		// sale never reopens an already-paid (LUNAS) debt.
 		if isHutang && transaction.CustomerID != nil {
 			var debt domain.Debts
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("customer_id = ?", *transaction.CustomerID).First(&debt).Error
-			var previousRemaining float64
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("customer_id = ? AND status = ?", *transaction.CustomerID, enum.BELUM_LUNAS).
+				First(&debt).Error
+			var previousRemaining int64
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
-				// No prior debt for this customer: previousRemaining is 0 (debt
-				// is still its zero value at this point).
-				previousRemaining = debt.RemainingDebt
+				// No prior debt for this customer.
+				previousRemaining = 0
 
-				totalDebt := debt.TotalDebt + transaction.TotalTransaction
+				totalDebt := transaction.TotalTransaction
 				debt = domain.Debts{
 					CustomerID:    *transaction.CustomerID,
 					TotalDebt:     totalDebt,
@@ -135,6 +138,9 @@ func (t *transactionRepository) CreateTransaction(ctx context.Context, transacti
 
 		// 3. Save the transaction along with its details.
 		if err := tx.Session(&gorm.Session{FullSaveAssociations: true}).Create(transaction).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return domain.Duplicate(fmt.Sprintf("transaction with no invoice %s already exists", transaction.NoInvoice))
+			}
 			return internalErr(fmt.Errorf("failed to create transaction: %w", err))
 		}
 		return nil
@@ -154,7 +160,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 		var trx domain.Transactions
 		if err := tx.Preload("TransactionDetail").Where("id = ?", id).First(&trx).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("transaction with id %s not found", id)
+				return domain.NotFound(fmt.Sprintf("transaction with id %s not found", id))
 			}
 			return internalErr(fmt.Errorf("failed to get transaction: %w", err))
 		}
@@ -171,10 +177,12 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 		}
 		for _, d := range trx.TransactionDetail {
 			var product domain.Products
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			// Unscoped so a soft-deleted product can still have its stock restored;
+			// a physically-deleted product is skipped (nothing left to restore).
+			if err := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ?", d.ProductID).First(&product).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("product with id %s not found", d.ProductID)
+					continue
 				}
 				return fmt.Errorf("failed to lock product: %w", err)
 			}
@@ -228,7 +236,7 @@ func (t *transactionRepository) DeleteTransaction(ctx context.Context, id uuid.U
 			return internalErr(fmt.Errorf("failed to delete transaction: %w", result.Error))
 		}
 		if result.RowsAffected == 0 {
-			return fmt.Errorf("transaction with id %s not found", id)
+			return domain.NotFound(fmt.Sprintf("transaction with id %s not found", id))
 		}
 		return nil
 	})
@@ -262,7 +270,14 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 		query = query.Where("created_at >= ?", *filter.DateStart)
 	}
 	if filter.DateEnd != nil && *filter.DateEnd != "" {
-		query = query.Where("created_at <= ?", *filter.DateEnd)
+		// DateEnd is a date (e.g. "2026-08-18"). Compare exclusively against the
+		// next day's start (in Jakarta tz) so the whole end date is included —
+		// the previous "created_at <= date" only matched midnight of that day.
+		if end, err := time.ParseInLocation("2006-01-02", *filter.DateEnd, jakartaLocation); err == nil {
+			query = query.Where("created_at < ?", end.AddDate(0, 0, 1))
+		} else {
+			query = query.Where("created_at <= ?", *filter.DateEnd)
+		}
 	}
 
 	if filter.Cursor != nil {
@@ -306,21 +321,39 @@ func (t *transactionRepository) GetAllTransaction(ctx context.Context, filter do
 	}, nil
 }
 
+// jakartaLocation is the timezone the DB session uses for `(created_at)::date`
+// casts (see the DSN `TimeZone=` in database_init.go). Report month boundaries
+// must be built in this same location, otherwise a sale between 00:00–07:00 WIB
+// (the previous UTC day) is mis-bucketed into the wrong day/month.
+var jakartaLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}()
+
+// monthRange returns the [start, end) instant range covering a month, aligned to
+// jakartaLocation so it matches the session-timezone `::date` grouping.
+func monthRange(month, year int) (time.Time, time.Time) {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, jakartaLocation)
+	return start, start.AddDate(0, 1, 0)
+}
+
 // GetMonthlyReport implements [domain.TransactionRepository].
 // Aggregates the transaction count and value for a given month & year.
 // payment_type = 1 (debt) is separated from revenue because it hasn't been received.
 func (t *transactionRepository) GetMonthlyReport(ctx context.Context, month int, year int) (*domain.MonthlyReport, error) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
+	start, end := monthRange(month, year)
 
 	var report domain.MonthlyReport
 	result := t.db.WithContext(ctx).
 		Model(&domain.Transactions{}).
 		Where("created_at >= ? AND created_at < ?", start, end).
-		Select(`COUNT(*) AS total_transaction,
-			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> 1), 0) AS total_revenue,
-			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = 1), 0) AS total_debt,
-			COALESCE(SUM(total_transaction), 0) AS grand_total`).
+		Select(fmt.Sprintf(`COUNT(*) AS total_transaction,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> %d), 0)::bigint AS total_revenue,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = %d), 0)::bigint AS total_debt,
+			COALESCE(SUM(total_transaction), 0)::bigint AS grand_total`, int(enum.Hutang), int(enum.Hutang))).
 		Scan(&report)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get monthly report: %w", result.Error)
@@ -332,18 +365,17 @@ func (t *transactionRepository) GetMonthlyReport(ctx context.Context, month int,
 // Aggregates transactions per day (per date) within a given month & year,
 // sorted ascending by date. Only days with transactions appear.
 func (t *transactionRepository) GetDailyReport(ctx context.Context, month int, year int) ([]domain.DailyReport, error) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
+	start, end := monthRange(month, year)
 
 	var rows []domain.DailyReport
 	result := t.db.WithContext(ctx).
 		Model(&domain.Transactions{}).
 		Where("created_at >= ? AND created_at < ?", start, end).
-		Select(`(created_at)::date AS date,
+		Select(fmt.Sprintf(`(created_at)::date AS date,
 			COUNT(*) AS total_transaction,
-			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> 1), 0) AS total_revenue,
-			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = 1), 0) AS total_debt,
-			COALESCE(SUM(total_transaction), 0) AS grand_total`).
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type <> %d), 0)::bigint AS total_revenue,
+			COALESCE(SUM(total_transaction) FILTER (WHERE payment_type = %d), 0)::bigint AS total_debt,
+			COALESCE(SUM(total_transaction), 0)::bigint AS grand_total`, int(enum.Hutang), int(enum.Hutang))).
 		Group(`(created_at)::date`).
 		Order(`(created_at)::date ASC`).
 		Scan(&rows)
@@ -357,17 +389,18 @@ func (t *transactionRepository) GetDailyReport(ctx context.Context, month int, y
 // Recap of products sold during a month (total qty & total sales per product),
 // sorted from the best-selling first.
 func (t *transactionRepository) GetMonthlyProductSold(ctx context.Context, month int, year int) ([]domain.ProductSoldReport, error) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
+	start, end := monthRange(month, year)
 
 	var rows []domain.ProductSoldReport
 	result := t.db.WithContext(ctx).
-		Table("transactions_detail AS td").
-		Joins("JOIN transactions AS t ON t.id = td.transaction_id").
-		Joins("JOIN products AS p ON p.id = td.product_id").
-		Where("t.created_at >= ? AND t.created_at < ? AND t.deleted_at IS NULL", start, end).
-		Select("p.product_name AS product_name, SUM(td.qty) AS qty, SUM(td.subtotal) AS total").
-		Group("p.product_name").
+		Model(&domain.Transactions{}).
+		Joins("TransactionDetail").
+		// Explicit join (not Joins("TransactionDetail.Product")) so soft-deleted
+		// products stay included: their historical sales must remain in the recap.
+		Joins("JOIN products ON products.id = transactions_detail.product_id").
+		Where("transactions.created_at >= ? AND transactions.created_at < ?", start, end).
+		Select("products.product_name AS product_name, SUM(transactions_detail.qty) AS qty, COALESCE(SUM(transactions_detail.subtotal), 0)::bigint AS total").
+		Group("products.product_name").
 		Order("qty DESC").
 		Scan(&rows)
 	if result.Error != nil {
@@ -380,18 +413,17 @@ func (t *transactionRepository) GetMonthlyProductSold(ctx context.Context, month
 // Recap of products sold per day (qty & sales per product on each date),
 // sorted ascending by date then the best-selling product that day.
 func (t *transactionRepository) GetDailyProductSold(ctx context.Context, month int, year int) ([]domain.DailyProductSoldReport, error) {
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
+	start, end := monthRange(month, year)
 
 	var rows []domain.DailyProductSoldReport
 	result := t.db.WithContext(ctx).
-		Table("transactions_detail AS td").
-		Joins("JOIN transactions AS t ON t.id = td.transaction_id").
-		Joins("JOIN products AS p ON p.id = td.product_id").
-		Where("t.created_at >= ? AND t.created_at < ? AND t.deleted_at IS NULL", start, end).
-		Select("(t.created_at)::date AS date, p.product_name AS product_name, SUM(td.qty) AS qty, SUM(td.subtotal) AS total").
-		Group("(t.created_at)::date, p.product_name").
-		Order("(t.created_at)::date ASC, qty DESC").
+		Model(&domain.Transactions{}).
+		Joins("TransactionDetail").
+		Joins("JOIN products ON products.id = transactions_detail.product_id").
+		Where("transactions.created_at >= ? AND transactions.created_at < ?", start, end).
+		Select("(transactions.created_at)::date AS date, products.product_name AS product_name, SUM(transactions_detail.qty) AS qty, COALESCE(SUM(transactions_detail.subtotal), 0)::bigint AS total").
+		Group("(transactions.created_at)::date, products.product_name").
+		Order("(transactions.created_at)::date ASC, qty DESC").
 		Scan(&rows)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get daily product sold: %w", result.Error)
@@ -407,7 +439,7 @@ func (t *transactionRepository) GetTransactionByID(ctx context.Context, id uuid.
 		Preload("TransactionDetail").Preload("TransactionDetail.Product").Where("id = ?", id).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("transaction with id %s not found: %w", id, result.Error)
+			return nil, domain.NotFound(fmt.Sprintf("transaction with id %s not found", id))
 		}
 		return nil, fmt.Errorf("failed to get transaction: %w", result.Error)
 	}
@@ -422,7 +454,7 @@ func (t *transactionRepository) UpdateTransaction(ctx context.Context, id uuid.U
 		return fmt.Errorf("failed to update transaction: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("transaction with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("transaction with id %s not found", id))
 	}
 	return nil
 }

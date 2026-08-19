@@ -10,7 +10,6 @@ import (
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"shop_project_be/pkg/pdf"
-	"strconv"
 	"strings"
 	"time"
 
@@ -33,11 +32,6 @@ func NewDebtUsecase(debtRepo domain.DebtRepository, log *zap.Logger) domain.Debt
 	}
 }
 
-// money formats a number into a string with 2 decimals.
-func money(v float64) string {
-	return strconv.FormatFloat(v, 'f', 2, 64)
-}
-
 // toDebtResponse maps a Debts entity to the response DTO.
 func toDebtResponse(debt *domain.Debts) responsedto.DebtResponseDto {
 	var dateDebt *string
@@ -58,8 +52,8 @@ func toDebtResponse(debt *domain.Debts) responsedto.DebtResponseDto {
 
 	return responsedto.DebtResponseDto{
 		NameCustomer:    debt.Customer.Name,
-		TotalDebt:       money(debt.TotalDebt),
-		RemainingDebt:   money(debt.RemainingDebt),
+		TotalDebt:       debt.TotalDebt,
+		RemainingDebt:   debt.RemainingDebt,
 		DateDebt:        dateDebt,
 		TransactionList: transactions,
 	}
@@ -70,7 +64,7 @@ func (d *debtUsecase) AddingDebtCustomer(ctx context.Context, request *requestdt
 	customerId, err := uuid.Parse(request.CustomerID)
 	if err != nil {
 		d.log.Error("failed to parse customer id", zap.Error(err))
-		return fmt.Errorf("invalid customer id format")
+		return domain.InvalidID("invalid customer id format")
 	}
 
 	dueDate, err := time.Parse(dateLayout, request.JatuhTempo)
@@ -88,7 +82,7 @@ func (d *debtUsecase) AddingDebtCustomer(ctx context.Context, request *requestdt
 	}
 	if err := d.debtRepo.AddDebt(ctx, debt); err != nil {
 		d.log.Error("failed to add debt", zap.Error(err))
-		return fmt.Errorf("failed to add debt")
+		return fmt.Errorf("failed to add debt: %w", domain.ErrInternal)
 	}
 	return nil
 }
@@ -98,23 +92,26 @@ func (d *debtUsecase) DeleteDebtCustomer(ctx context.Context, request *requestdt
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
 		d.log.Error("failed to parse debt id", zap.Error(err))
-		return fmt.Errorf("invalid debt id format")
+		return domain.InvalidID("invalid debt id format")
 	}
 	if err := d.debtRepo.DeleteDebt(ctx, id); err != nil {
 		d.log.Error("failed to delete debt", zap.Error(err))
-		return fmt.Errorf("failed to delete debt")
+		if errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("failed to delete debt: %w", domain.ErrInternal)
 	}
 	return nil
 }
 
 // GetAllDebtCustomerList implements [domain.DebtUseCase].
-func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListReponseDto, error) {
+func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListResponseDto, error) {
 	filter := domain.FilterDebt{Limit: request.Limit, Order: request.Order}
 	if request.CustomerId != "" {
 		customerId, err := uuid.Parse(request.CustomerId)
 		if err != nil {
 			d.log.Error("failed to parse customer id", zap.Error(err))
-			return nil, fmt.Errorf("invalid customer id format")
+			return nil, domain.InvalidID("invalid customer id format")
 		}
 		filter.CustomerID = customerId
 	}
@@ -138,7 +135,7 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 		afterUUID, err := uuid.Parse(afterId)
 		if err != nil {
 			d.log.Error("failed to parse after_id", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_id format")
+			return nil, domain.InvalidID("invalid after_id format")
 		}
 		filter.Cursor = &paginated.CursorMeta{AfterTime: afterTime, AfterID: afterUUID}
 	}
@@ -146,7 +143,7 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 	result, err := d.debtRepo.GetAllDebt(ctx, filter)
 	if err != nil {
 		d.log.Error("failed to get debts", zap.Error(err))
-		return nil, fmt.Errorf("failed to get debts")
+		return nil, fmt.Errorf("failed to get debts: %w", domain.ErrInternal)
 	}
 
 	responses := make([]responsedto.DebtResponseDto, 0, len(result.Data))
@@ -157,7 +154,7 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 	// Cursor is nil on the last page; Encode is nil-safe (no panic).
 	nextId, nextTime := result.Cursor.Encode()
 
-	return &responsedto.DebtListReponseDto{
+	return &responsedto.DebtListResponseDto{
 		AfterId:         nextId,
 		AfterTime:       nextTime,
 		HasNext:         result.HasNext,
@@ -170,17 +167,20 @@ func (d *debtUsecase) GetDebtCustomer(ctx context.Context, request *requestdto.G
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
 		d.log.Error("failed to parse debt id", zap.Error(err))
-		return nil, fmt.Errorf("invalid debt id format")
+		return nil, domain.InvalidID("invalid debt id format")
 	}
 
 	debt, err := d.debtRepo.GetDebtByID(ctx, id)
 	if err != nil {
 		d.log.Error("failed to get debt", zap.Error(err))
-		return nil, fmt.Errorf("failed to get debt")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get debt: %w", domain.ErrInternal)
 	}
 	if debt == nil {
 		d.log.Error("debt not found", zap.String("debt_id", request.DebtId))
-		return nil, fmt.Errorf("debt not found")
+		return nil, domain.NotFound("debt not found")
 	}
 
 	response := toDebtResponse(debt)
@@ -197,12 +197,12 @@ func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtP
 	debtID, err := uuid.Parse(request.DebtID)
 	if err != nil {
 		d.log.Error("failed to parse debt id", zap.Error(err))
-		return nil, fmt.Errorf("invalid debt id format")
+		return nil, domain.InvalidID("invalid debt id format")
 	}
 	userID, err := uuid.Parse(request.UserID)
 	if err != nil {
 		d.log.Error("failed to parse user id", zap.Error(err))
-		return nil, fmt.Errorf("invalid user id format")
+		return nil, domain.InvalidID("invalid user id format")
 	}
 	if request.NominalBayar <= 0 {
 		return nil, fmt.Errorf("nominal_bayar must be greater than 0")
@@ -213,7 +213,7 @@ func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtP
 	if err != nil {
 		d.log.Error("failed to pay debt", zap.Error(err))
 		if errors.Is(err, domain.ErrInternal) {
-			return nil, fmt.Errorf("failed to record debt payment")
+			return nil, fmt.Errorf("failed to record debt payment: %w", domain.ErrInternal)
 		}
 		// Business errors (not found, already paid off, overpayment) pass
 		// through unwrapped so the cashier sees why it was rejected.
@@ -223,10 +223,10 @@ func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtP
 	return &responsedto.DebtPaymentResponse{
 		DebtId:                result.Debt.ID.String(),
 		CustomerName:          result.Debt.Customer.Name,
-		NominalBayar:          money(request.NominalBayar),
-		PreviousRemainingDebt: money(result.PreviousRemainingDebt),
-		RemainingDebt:         money(result.Debt.RemainingDebt),
-		TotalDebt:             money(result.Debt.TotalDebt),
+		NominalBayar:          request.NominalBayar,
+		PreviousRemainingDebt: result.PreviousRemainingDebt,
+		RemainingDebt:         result.Debt.RemainingDebt,
+		TotalDebt:             result.Debt.TotalDebt,
 		Status:                result.Debt.Status.String(),
 		PaidAt:                result.PaidAt.Format(time.RFC3339),
 	}, nil
@@ -242,17 +242,20 @@ func (d *debtUsecase) PrintReportDebtCustomer(ctx context.Context, request *requ
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
 		d.log.Error("failed to parse debt id", zap.Error(err))
-		return nil, fmt.Errorf("invalid debt id format")
+		return nil, domain.InvalidID("invalid debt id format")
 	}
 
 	debt, err := d.debtRepo.GetDebtByID(ctx, id)
 	if err != nil {
 		d.log.Error("failed to get debt", zap.Error(err))
-		return nil, fmt.Errorf("failed to get debt")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get debt: %w", domain.ErrInternal)
 	}
 	if debt == nil {
 		d.log.Error("debt not found", zap.String("debt_id", request.DebtId))
-		return nil, fmt.Errorf("debt not found")
+		return nil, domain.NotFound("debt not found")
 	}
 
 	payments := make([]pdf.DebtPaymentRow, 0, len(debt.DebtPayments))
@@ -282,7 +285,7 @@ func (d *debtUsecase) PrintReportDebtCustomer(ctx context.Context, request *requ
 	})
 	if err != nil {
 		d.log.Error("failed to generate debt report pdf", zap.Error(err))
-		return nil, fmt.Errorf("failed to generate report pdf")
+		return nil, fmt.Errorf("failed to generate report pdf: %w", domain.ErrInternal)
 	}
 
 	return &responsedto.PrintDebtCustomerResponse{

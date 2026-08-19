@@ -11,3 +11,9 @@ type UserRegisterRequest struct {
 	Username string `json:"username" validate:"required,min=3,max=100"`
 	Password string `json:"password" validate:"required,min=6"`
 }
+
+// UserRefreshTokenRequest carries the refresh token used to obtain a new
+// access/refresh token pair without re-authenticating.
+type UserRefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}

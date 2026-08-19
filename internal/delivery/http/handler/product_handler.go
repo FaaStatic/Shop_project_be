@@ -42,7 +42,7 @@ func (h *ProductHandler) Add(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.AddProductShopWithLock(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "product created", nil)
 }
@@ -71,7 +71,7 @@ func (h *ProductHandler) AddBulk(c fiber.Ctx) error {
 		FileUpload: fileHeader,
 	}
 	if err := h.usecase.AddBulkProductShopWithLock(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, err.Error(), err)
+		return writeError(c, fiber.StatusBadRequest, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "bulk product imported", nil)
 }
@@ -95,7 +95,7 @@ func (h *ProductHandler) Get(c fiber.Ctx) error {
 	}
 	product, err := h.usecase.GetProductShop(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusNotFound, err.Error(), err)
+		return writeError(c, fiber.StatusNotFound, err)
 	}
 	return response.Success(c, fiber.StatusOK, "product found", product)
 }
@@ -126,7 +126,7 @@ func (h *ProductHandler) List(c fiber.Ctx) error {
 	req.UserId = middleware.GetUserID(c)
 	products, err := h.usecase.GetAllProductShop(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Paginated(c, fiber.StatusOK, "products fetched", products)
 }
@@ -139,22 +139,24 @@ func (h *ProductHandler) List(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
+//	@Param			id		path		string	true	"Product ID"
 //	@Param			request	body		requestdto.UpdateProduct	true	"Updated product data"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/products [put]
+//	@Router			/api/products/{id} [put]
 func (h *ProductHandler) Update(c fiber.Ctx) error {
 	var req requestdto.UpdateProduct
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
+	req.ID = c.Params("id")
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	// Stock changes are handled by the dedicated stock endpoint, so delta = 0.
 	if err := h.usecase.UpdateProductShopWithLock(c.Context(), &req, 0); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "product updated", nil)
 }
@@ -181,7 +183,7 @@ func (h *ProductHandler) UpdateStock(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.UpdateStockWithLock(c.Context(), &req, req.Stock); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "stock updated", nil)
 }
@@ -194,21 +196,18 @@ func (h *ProductHandler) UpdateStock(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteProduct	true	"ID of the product to delete"
+//	@Param			id		path		string	true	"Product ID"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/products [delete]
+//	@Router			/api/products/{id} [delete]
 func (h *ProductHandler) Delete(c fiber.Ctx) error {
-	var req requestdto.DeleteProduct
-	if err := bindBody(c, &req); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
-	}
+	req := requestdto.DeleteProduct{ID: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.DeleteProductShop(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "product deleted", nil)
 }

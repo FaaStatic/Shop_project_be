@@ -16,7 +16,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/compress"
 	"github.com/gofiber/fiber/v3/middleware/cors"
-	"github.com/gofiber/fiber/v3/middleware/csrf"
 	"github.com/gofiber/fiber/v3/middleware/encryptcookie"
 	"github.com/gofiber/fiber/v3/middleware/helmet"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
@@ -32,9 +31,12 @@ func GetFiberConfig(logger *zap.Logger, appName string) fiber.Config {
 		StructValidator: appvalidator.New(),
 		ServerHeader:    "Fiber",
 		AppName:         appName,
-		ReadTimeout:     5 * time.Minute,
-		WriteTimeout:    5 * time.Minute,
-		IdleTimeout:     10 * time.Minute,
+		// Slowloris/misbehaving-client protection: keep these tight enough that a
+		// stalled connection cannot hold a worker open, but loose enough for the
+		// slowest legitimate operation (PDF report generation) to finish.
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  10 * time.Minute,
 		// 25 MB: enough for product CSV/Excel imports & normal JSON, but cuts
 		// the DoS/RAM vector (larger requests are rejected 413 before being fully buffered).
 		BodyLimit:     25 * 1024 * 1024,
@@ -139,7 +141,6 @@ func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisC
 	app.Use(helmet.New(middleware.GetXSSConfig()))
 	app.Use(compress.New(middleware.GetCompressConfig()))
 	app.Use(cors.New(middleware.GetCorsConfig()))
-	app.Use(csrf.New(middleware.GetCSRFConfig()))
 	app.Use(limiter.New(middleware.GetGlobalLimiter(redisClient)))
 	if env == "production" {
 		app.Use(encryptcookie.New(middleware.GetSecureCookiesMiddleware(env, envData.Encrypt.Key)))

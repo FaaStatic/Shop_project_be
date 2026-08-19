@@ -31,6 +31,7 @@ redis:
   host:
 jwt:
   secret:
+  # Nilai dalam DETIK: token_ttl 3600 = 1 jam; refresh_token_ttl 604800 = 7 hari.
   token_ttl:
   refresh_token_ttl:
 encrypt:

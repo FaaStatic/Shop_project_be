@@ -30,6 +30,11 @@ type SessionRepository interface {
 	CreateSession(ctx context.Context, session *Session, key string, ttl time.Duration) error
 	GetSessionByAccessToken(ctx context.Context, key string) (*Session, error)
 	DeleteSessionByAccessToken(ctx context.Context, key string) error
+	GetSessionByRefreshToken(ctx context.Context, key string) (*Session, error)
+	// PopSessionByRefreshToken atomically returns and deletes the refresh
+	// session, so only one concurrent refresh can win for a given refresh token.
+	PopSessionByRefreshToken(ctx context.Context, key string) (*Session, error)
+	DeleteSessionByRefreshToken(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
 
 	// Presence (who is currently online).

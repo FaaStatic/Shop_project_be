@@ -9,8 +9,7 @@ type UserRole int
 
 const (
 	superadmin UserRole = iota // 0
-	_                          // 1: formerly admin, now unused (reserved so staff stays 2)
-	staff                      // 2
+	staff                      // 1
 )
 
 func (typeUser UserRole) String() string {

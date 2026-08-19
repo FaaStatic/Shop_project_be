@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"shop_project_be/internal/domain"
 	"time"
 
@@ -105,4 +106,43 @@ func (s *sessionRepository) GetSessionByAccessToken(ctx context.Context, key str
 		return nil, err
 	}
 	return &session, nil
+}
+
+// GetSessionByRefreshToken implements [domain.SessionRepository].
+func (s *sessionRepository) GetSessionByRefreshToken(ctx context.Context, key string) (*domain.Session, error) {
+	data, err := s.rdb.Get(ctx, key).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var session domain.Session
+	if err := sonic.Unmarshal(data, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// PopSessionByRefreshToken implements [domain.SessionRepository]. It uses
+// GETDEL so the refresh session is returned and removed atomically: of two
+// concurrent refreshes with the same token, only one receives the session.
+func (s *sessionRepository) PopSessionByRefreshToken(ctx context.Context, key string) (*domain.Session, error) {
+	data, err := s.rdb.GetDel(ctx, key).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var session domain.Session
+	if err := sonic.Unmarshal(data, &session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// DeleteSessionByRefreshToken implements [domain.SessionRepository].
+func (s *sessionRepository) DeleteSessionByRefreshToken(ctx context.Context, key string) error {
+	return s.rdb.Del(ctx, key).Err()
 }

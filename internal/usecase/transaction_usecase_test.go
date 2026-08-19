@@ -161,7 +161,7 @@ func TestAddTransaction_CashSale_Success(t *testing.T) {
 		t.Error("AddTransaction must deduct stock (deductStock=true)")
 	}
 	// Cash price uses SellingPrice, not the debt price.
-	wantTotal := 12000.0 * 2
+	wantTotal := int64(24000)
 	if trxRepo.created.TotalTransaction != wantTotal {
 		t.Errorf("total = %v, want %v (must use SellingPrice for cash)", trxRepo.created.TotalTransaction, wantTotal)
 	}
@@ -218,7 +218,7 @@ func TestAddTransaction_HutangSale_UsesDebtPriceAndRequiresCustomer(t *testing.T
 	if !trxRepo.createdDeductStock {
 		t.Error("a hutang POS sale still deducts stock immediately")
 	}
-	wantTotal := 13000.0 * 3
+	wantTotal := int64(39000)
 	if trxRepo.created.TotalTransaction != wantTotal {
 		t.Errorf("total = %v, want %v (hutang must use SellingPriceDebt)", trxRepo.created.TotalTransaction, wantTotal)
 	}
@@ -233,10 +233,10 @@ func TestAddTransaction_HutangSale_UsesDebtPriceAndRequiresCustomer(t *testing.T
 	if resp.DebtInfo.DebtID != debtID.String() {
 		t.Errorf("debt id = %s, want %s", resp.DebtInfo.DebtID, debtID)
 	}
-	if resp.DebtInfo.PreviousRemainingDebt != "0.00" {
-		t.Errorf("previous remaining debt = %s, want 0.00 (first debt for this customer)", resp.DebtInfo.PreviousRemainingDebt)
+	if resp.DebtInfo.PreviousRemainingDebt != 0 {
+		t.Errorf("previous remaining debt = %d, want 0 (first debt for this customer)", resp.DebtInfo.PreviousRemainingDebt)
 	}
-	if resp.DebtInfo.AmountAdded != "39000.00" || resp.DebtInfo.RemainingDebt != "39000.00" || resp.DebtInfo.TotalDebt != "39000.00" {
+	if resp.DebtInfo.AmountAdded != 39000 || resp.DebtInfo.RemainingDebt != 39000 || resp.DebtInfo.TotalDebt != 39000 {
 		t.Errorf("unexpected debt info: %+v", resp.DebtInfo)
 	}
 	if resp.DebtInfo.Status != enum.BELUM_LUNAS.String() {
@@ -480,7 +480,7 @@ func TestGetTransaction_Success(t *testing.T) {
 		NoInvoice:        "INV-1",
 		TotalTransaction: 5000,
 		TransactionDetail: []domain.TransactionsDetail{
-			{Qty: 1, Price: 5000, Subtotal: 5000, Product: domain.Products{ProductName: "Air Mineral"}},
+			{Qty: 1, Price: 5000, Subtotal: 5000, ProductName: "Air Mineral"},
 		},
 	}}
 	u := newTestTransactionUsecase(trxRepo, &fakeTrxProductRepo{}, &fakeTrxUserRepo{}, &fakeTrxCustomerRepo{})

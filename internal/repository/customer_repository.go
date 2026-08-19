@@ -59,7 +59,7 @@ func (c *customerRepository) DeleteCustomer(ctx context.Context, id uuid.UUID) e
 		return fmt.Errorf("failed to delete customer: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("customer with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 	}
 	return nil
 }
@@ -70,12 +70,12 @@ func (c *customerRepository) GetCustomer(ctx context.Context, id uuid.UUID) (*[]
 	result := c.db.Preload("Transactions").Preload("Debts").WithContext(ctx).Where("id = ?", id).First(&customers)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("customer with id %s not found: %w", id, result.Error)
+			return nil, domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 		}
 		return nil, fmt.Errorf("failed to get customer: %w", result.Error)
 	}
 	if len(customers) == 0 {
-		return nil, fmt.Errorf("customer with id %s not found", id)
+		return nil, domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 	}
 	return &customers, nil
 }
@@ -149,7 +149,7 @@ func (c *customerRepository) UpdateCustomer(ctx context.Context, id uuid.UUID, c
 		return fmt.Errorf("failed to update customer: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("customer with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 	}
 	return nil
 }

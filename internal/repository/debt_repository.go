@@ -28,7 +28,7 @@ func (d *debtRepository) GetDebtByID(ctx context.Context, id uuid.UUID) (*domain
 	result := d.db.Preload("Customer").Preload("Transactions").Preload("DebtPayments").Preload("DebtPayments.User").WithContext(ctx).Where("id = ?", id).First(&debt)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("debt with id %s not found: %w", id, result.Error)
+			return nil, domain.NotFound(fmt.Sprintf("debt with id %s not found", id))
 		}
 		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
 	}
@@ -42,18 +42,41 @@ func (d *debtRepository) UpdateDebt(ctx context.Context, id uuid.UUID, debt *dom
 		return fmt.Errorf("failed to update debt: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("debt with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("debt with id %s not found", id))
 	}
 	return nil
 }
 
 // AddDebt implements [domain.DebtRepository].
+// Adds the amount to the customer's still-open (BELUM_LUNAS) debt when one
+// exists, otherwise creates a new debt. The upsert runs in a transaction with
+// a row lock so concurrent additions for the same customer serialize instead
+// of silently creating duplicate open debts.
 func (d *debtRepository) AddDebt(ctx context.Context, debt *domain.Debts) error {
-	result := d.db.WithContext(ctx).Create(debt)
-	if result.Error != nil {
-		return fmt.Errorf("failed to add debt: %w", result.Error)
-	}
-	return nil
+	return runTxDB(ctx, d.db, func(tx *gorm.DB) error {
+		var open domain.Debts
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("customer_id = ? AND status = ?", debt.CustomerID, enum.BELUM_LUNAS).
+			First(&open).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := tx.Create(debt).Error; err != nil {
+				return internalErr(fmt.Errorf("failed to add debt: %w", err))
+			}
+		case err != nil:
+			return internalErr(fmt.Errorf("failed to get debt: %w", err))
+		default:
+			if err := tx.Model(&domain.Debts{}).Where("id = ?", open.ID).
+				Updates(map[string]interface{}{
+					"total_debt":     open.TotalDebt + debt.TotalDebt,
+					"remaining_debt": open.RemainingDebt + debt.RemainingDebt,
+					"status":         enum.BELUM_LUNAS,
+				}).Error; err != nil {
+				return internalErr(fmt.Errorf("failed to update debt: %w", err))
+			}
+		}
+		return nil
+	})
 }
 
 // DeleteDebt implements [domain.DebtRepository].
@@ -63,7 +86,7 @@ func (d *debtRepository) DeleteDebt(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("failed to delete debt: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("debt with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("debt with id %s not found", id))
 	}
 	return nil
 }
@@ -78,7 +101,7 @@ func (d *debtRepository) PayDebt(ctx context.Context, debtID uuid.UUID, payment 
 		if err := tx.Preload("Customer").Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", debtID).First(&debt).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("debt with id %s not found", debtID)
+				return domain.NotFound(fmt.Sprintf("debt with id %s not found", debtID))
 			}
 			return internalErr(fmt.Errorf("failed to lock debt: %w", err))
 		}
@@ -86,7 +109,7 @@ func (d *debtRepository) PayDebt(ctx context.Context, debtID uuid.UUID, payment 
 			return fmt.Errorf("debt has already been fully paid")
 		}
 		if payment.NominalBayar > debt.RemainingDebt {
-			return fmt.Errorf("payment amount (%.2f) exceeds remaining debt (%.2f)", payment.NominalBayar, debt.RemainingDebt)
+			return fmt.Errorf("payment amount (%d) exceeds remaining debt (%d)", payment.NominalBayar, debt.RemainingDebt)
 		}
 		previousRemaining := debt.RemainingDebt
 

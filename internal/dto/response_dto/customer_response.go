@@ -11,8 +11,8 @@ type CustomerDtoResponse struct {
 }
 
 type ListCustomerDtoResponse struct {
-	AfterId      string                `json:"after_id"`
-	AfterTime    string                `json:"after_time"`
-	HasNext      bool                  `json:"has_next"`
-	CustomerList []CustomerDtoResponse `json:"customer_lists"`
+	AfterId       string                `json:"after_id"`
+	AfterTime     string                `json:"after_time"`
+	HasNext       bool                  `json:"has_next"`
+	CustomerLists []CustomerDtoResponse `json:"customer_lists"`
 }

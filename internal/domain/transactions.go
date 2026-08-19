@@ -21,7 +21,7 @@ type Transactions struct {
 
 	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
 	Bank             *string           `gorm:"type:varchar(20)" json:"bank,omitempty"` // "bca"|"mandiri", set only when PaymentType == transfer
-	TotalTransaction float64           `gorm:"type:decimal(15,2);not null" json:"total_transaction"`
+	TotalTransaction int64             `gorm:"type:bigint;not null" json:"total_transaction"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt        gorm.DeletedAt    `gorm:"index" json:"-"`
@@ -35,10 +35,12 @@ type TransactionsDetail struct {
 	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	TransactionID uuid.UUID `gorm:"type:uuid;not null" json:"transaction_id"`
 	ProductID     uuid.UUID `gorm:"type:uuid;not null" json:"product_id"`
-	Price         float64   `gorm:"type:decimal(15,2);not null" json:"price"`
-	PriceDebt     float64   `gorm:"type:decimal(15,2);not null" json:"price_debt"`
+	ProductName   string    `gorm:"type:varchar(255);not null;default:''" json:"product_name"`
+	Price         int64     `gorm:"type:bigint;not null" json:"price"`
+	PriceDebt     int64     `gorm:"type:bigint;not null" json:"price_debt"`
+	PurchasePrice int64     `gorm:"type:bigint;not null;default:0" json:"purchase_price"`
 	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
-	Subtotal      float64   `gorm:"type:decimal(15,2);not null" json:"subtotal"`
+	Subtotal      int64     `gorm:"type:bigint;not null" json:"subtotal"`
 	Destination   *string   `gorm:"type:varchar(50)" json:"destination,omitempty"` // phone/e-wallet account for digital products
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
@@ -70,26 +72,26 @@ type ResultTransaction struct {
 
 // MonthlyReport is the aggregation of transactions over one month.
 type MonthlyReport struct {
-	TotalTransaction int64   `gorm:"column:total_transaction"` // number of transactions
-	TotalRevenue     float64 `gorm:"column:total_revenue"`     // incoming revenue (excluding debt)
-	TotalDebt        float64 `gorm:"column:total_debt"`        // value of debt transactions
-	GrandTotal       float64 `gorm:"column:grand_total"`       // total of all transaction values
+	TotalTransaction int64 `gorm:"column:total_transaction"` // number of transactions
+	TotalRevenue     int64 `gorm:"column:total_revenue"`     // incoming revenue (excluding debt)
+	TotalDebt        int64 `gorm:"column:total_debt"`        // value of debt transactions
+	GrandTotal       int64 `gorm:"column:grand_total"`       // total of all transaction values
 }
 
 // DailyReport is the aggregation of transactions on a single day of that month.
 type DailyReport struct {
 	Date             time.Time `gorm:"column:date"`
 	TotalTransaction int64     `gorm:"column:total_transaction"`
-	TotalRevenue     float64   `gorm:"column:total_revenue"`
-	TotalDebt        float64   `gorm:"column:total_debt"`
-	GrandTotal       float64   `gorm:"column:grand_total"`
+	TotalRevenue     int64     `gorm:"column:total_revenue"`
+	TotalDebt        int64     `gorm:"column:total_debt"`
+	GrandTotal       int64     `gorm:"column:grand_total"`
 }
 
 // ProductSoldReport is the recap of a single product sold during a month.
 type ProductSoldReport struct {
 	ProductName string  `gorm:"column:product_name"`
 	Qty         float64 `gorm:"column:qty"`
-	Total       float64 `gorm:"column:total"`
+	Total       int64   `gorm:"column:total"`
 }
 
 // DailyProductSoldReport is the recap of a single product sold on a single day.
@@ -97,7 +99,7 @@ type DailyProductSoldReport struct {
 	Date        time.Time `gorm:"column:date"`
 	ProductName string    `gorm:"column:product_name"`
 	Qty         float64   `gorm:"column:qty"`
-	Total       float64   `gorm:"column:total"`
+	Total       int64     `gorm:"column:total"`
 }
 
 // TransactionDebtSnapshot captures how a hutang (debt) sale affected the
@@ -107,10 +109,10 @@ type DailyProductSoldReport struct {
 // returns nil since it never touches the debts table.
 type TransactionDebtSnapshot struct {
 	DebtID                uuid.UUID
-	PreviousRemainingDebt float64         // remaining debt before this transaction
-	AmountAdded           float64         // this transaction's total, added to the debt
-	TotalDebt             float64         // cumulative total ever owed, after this transaction
-	RemainingDebt         float64         // remaining owed, after this transaction
+	PreviousRemainingDebt int64           // remaining debt before this transaction
+	AmountAdded           int64           // this transaction's total, added to the debt
+	TotalDebt             int64           // cumulative total ever owed, after this transaction
+	RemainingDebt         int64           // remaining owed, after this transaction
 	Status                enum.DebtStatus // BELUM_LUNAS/LUNAS after this transaction
 }
 

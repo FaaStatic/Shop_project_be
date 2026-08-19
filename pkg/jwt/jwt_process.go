@@ -90,3 +90,9 @@ func (j *JWTService) ValidateToken(tokenStr string) (*Claims, error) {
 
 	return claims, nil
 }
+
+// RefreshTokenTTL returns the refresh-token lifetime, used to set the TTL of the
+// refresh-token session in Redis (which must outlive the access token).
+func (j *JWTService) RefreshTokenTTL() time.Duration {
+	return j.refreshTokenTTL
+}

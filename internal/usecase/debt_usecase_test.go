@@ -164,8 +164,8 @@ func TestGetDebtCustomer_Success(t *testing.T) {
 	if resp.NameCustomer != "Budi" {
 		t.Errorf("expected customer name Budi, got %s", resp.NameCustomer)
 	}
-	if resp.TotalDebt != "30000.00" || resp.RemainingDebt != "12000.00" {
-		t.Errorf("unexpected formatted amounts: total=%s remaining=%s", resp.TotalDebt, resp.RemainingDebt)
+	if resp.TotalDebt != 30000 || resp.RemainingDebt != 12000 {
+		t.Errorf("unexpected formatted amounts: total=%d remaining=%d", resp.TotalDebt, resp.RemainingDebt)
 	}
 }
 
@@ -225,17 +225,17 @@ func TestPayDebtCash_Success(t *testing.T) {
 	}
 	// The receipt (struk) must show what was owed before this payment, not
 	// just the after-state — that's the whole point of the receipt.
-	if resp.PreviousRemainingDebt != "20000.00" {
-		t.Errorf("expected previous remaining debt 20000.00, got %s", resp.PreviousRemainingDebt)
+	if resp.PreviousRemainingDebt != 20000 {
+		t.Errorf("expected previous remaining debt 20000, got %d", resp.PreviousRemainingDebt)
 	}
-	if resp.RemainingDebt != "5000.00" {
-		t.Errorf("expected formatted remaining debt 5000.00, got %s", resp.RemainingDebt)
+	if resp.RemainingDebt != 5000 {
+		t.Errorf("expected formatted remaining debt 5000, got %d", resp.RemainingDebt)
 	}
-	if resp.TotalDebt != "50000.00" {
-		t.Errorf("expected formatted total debt 50000.00, got %s", resp.TotalDebt)
+	if resp.TotalDebt != 50000 {
+		t.Errorf("expected formatted total debt 50000, got %d", resp.TotalDebt)
 	}
-	if resp.NominalBayar != "15000.00" {
-		t.Errorf("expected formatted nominal_bayar 15000.00, got %s", resp.NominalBayar)
+	if resp.NominalBayar != 15000 {
+		t.Errorf("expected formatted nominal_bayar 15000, got %d", resp.NominalBayar)
 	}
 	if resp.CustomerName != "Budi" {
 		t.Errorf("expected customer name Budi on the receipt, got %s", resp.CustomerName)
@@ -269,11 +269,11 @@ func TestPayDebtCash_FullyPaidFlipsStatusToLunas(t *testing.T) {
 	if resp.Status != enum.LUNAS.String() {
 		t.Errorf("expected status LUNAS once remaining debt reaches 0, got %s", resp.Status)
 	}
-	if resp.RemainingDebt != "0.00" {
-		t.Errorf("expected remaining debt 0.00, got %s", resp.RemainingDebt)
+	if resp.RemainingDebt != 0 {
+		t.Errorf("expected remaining debt 0, got %d", resp.RemainingDebt)
 	}
-	if resp.PreviousRemainingDebt != "20000.00" {
-		t.Errorf("expected previous remaining debt 20000.00, got %s", resp.PreviousRemainingDebt)
+	if resp.PreviousRemainingDebt != 20000 {
+		t.Errorf("expected previous remaining debt 20000, got %d", resp.PreviousRemainingDebt)
 	}
 }
 
@@ -305,7 +305,7 @@ func TestPayDebtCash_InvalidUserID(t *testing.T) {
 }
 
 func TestPayDebtCash_RejectsNonPositiveNominal(t *testing.T) {
-	tests := []float64{0, -100}
+	tests := []int64{0, -100}
 	for _, nominal := range tests {
 		repo := &fakeDebtRepo{}
 		u := newTestDebtUsecase(repo)

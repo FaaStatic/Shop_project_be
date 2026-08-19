@@ -46,7 +46,7 @@ func (h *TransactionHandler) Add(c fiber.Ctx) error {
 	}
 	result, err := h.trxUsecase.AddTransaction(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "transaction created", result)
 }
@@ -76,7 +76,7 @@ func (h *TransactionHandler) List(c fiber.Ctx) error {
 	req.UserId = middleware.GetUserID(c)
 	result, err := h.trxUsecase.GetAllTransaction(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "transactions fetched", result)
 }
@@ -105,7 +105,7 @@ func (h *TransactionHandler) Get(c fiber.Ctx) error {
 	}
 	result, err := h.trxUsecase.GetTransaction(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusNotFound, err.Error(), err)
+		return writeError(c, fiber.StatusNotFound, err)
 	}
 	return response.Success(c, fiber.StatusOK, "transaction found", result)
 }
@@ -118,21 +118,18 @@ func (h *TransactionHandler) Get(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteTransactionRequest	true	"ID of the transaction to delete"
+//	@Param			id		path		string	true	"Transaction ID"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/transactions [delete]
+//	@Router			/api/transactions/{id} [delete]
 func (h *TransactionHandler) Delete(c fiber.Ctx) error {
-	var req requestdto.DeleteTransactionRequest
-	if err := bindBody(c, &req); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
-	}
+	req := requestdto.DeleteTransactionRequest{ID: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.trxUsecase.DeleteTransaction(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "transaction deleted", nil)
 }
@@ -161,7 +158,7 @@ func (h *TransactionHandler) ReportMonth(c fiber.Ctx) error {
 	}
 	result, err := h.trxUsecase.PrintReportMonth(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "report generated", result)
 }
@@ -190,7 +187,7 @@ func (h *TransactionHandler) ReportTransaction(c fiber.Ctx) error {
 	}
 	result, err := h.trxUsecase.PrintReportTransaction(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "report generated", result)
 }

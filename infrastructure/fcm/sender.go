@@ -14,6 +14,11 @@ type Sender struct {
 	client *messaging.Client
 }
 
+// channelPayment is the Android notification channel ID used for payment
+// notifications. The client app MUST create this channel on Android 8+
+// (API 26+) at startup, otherwise the OS silently drops the notification.
+const channelPayment = "payment_notification"
+
 func NewSender(ctx context.Context, credentialsPath string) (*Sender, error) {
 	opt := option.WithAuthCredentialsFile(option.ServiceAccount, credentialsPath)
 	app, err := firebase.NewApp(ctx, nil, opt)
@@ -43,7 +48,7 @@ func (s *Sender) SendToToken(ctx context.Context, token []string, p domain.Paylo
 		Android: &messaging.AndroidConfig{
 			Priority: "high",
 			Notification: &messaging.AndroidNotification{
-				ChannelID: "payment_notification",
+				ChannelID: channelPayment,
 			},
 		},
 		APNS: &messaging.APNSConfig{

@@ -62,7 +62,9 @@ var serverRun = &cobra.Command{
 		fcmRepo := repository.NewDeviceTokenRepository(db)
 
 		// Service
-		jwtService := jwt.NewJWTService(envConf.JWT.Secret, envConf.JWT.AccessTokenTTL, envConf.JWT.RefreshTokenTTL)
+		// Config stores TTLs in SECONDS; NewJWTService expects minutes (access)
+		// and hours (refresh), so convert here.
+		jwtService := jwt.NewJWTService(envConf.JWT.Secret, envConf.JWT.AccessTokenTTL/60, envConf.JWT.RefreshTokenTTL/3600)
 		midtransGateway := payment.NewMidtransGateway(envConf.Midtrans.ServerKey, envConf.Midtrans.Environment)
 		sender, err := fcm.NewSender(ctxBg, envConf.FirebaseStr.GOOGLE_APPLICATION_CREDENTIALS)
 

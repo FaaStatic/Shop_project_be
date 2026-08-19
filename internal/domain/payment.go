@@ -42,7 +42,7 @@ type Payment struct {
 	UserID      uuid.UUID     `gorm:"type:uuid;not null" json:"user_id"`
 	CustomerID  *uuid.UUID    `gorm:"type:uuid" json:"customer_id,omitempty"`
 	Method      string        `gorm:"type:varchar(20);not null" json:"method"` // "qris" | "va"
-	GrossAmount float64       `gorm:"type:decimal(15,2);not null" json:"gross_amount"`
+	GrossAmount int64         `gorm:"type:bigint;not null" json:"gross_amount"`
 	Status      PaymentStatus `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
 
 	// Raw data from Midtrans for audit/reconciliation.

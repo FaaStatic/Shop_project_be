@@ -16,8 +16,8 @@ const (
 	ikat
 )
 
-func (typeItem ProductUnit) String() string {
-	switch typeItem {
+func (u ProductUnit) String() string {
+	switch u {
 	case pcs:
 		return "pcs"
 	case gram:
@@ -35,19 +35,21 @@ func (typeItem ProductUnit) String() string {
 	}
 }
 
-// ParseProductUnit accepts a unit as a number (0-4) or text
-// ("pcs", "kg", "liter", "kardus", "ikat"). Empty defaults to "pcs".
+// ParseProductUnit accepts a unit as a number (0-5) or text
+// ("pcs", "gram", "kg", "liter", "kardus", "ikat"). Empty defaults to "pcs".
 func ParseProductUnit(s string) (ProductUnit, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "pcs", "0":
 		return pcs, nil
-	case "kg", "1":
+	case "gram", "1":
+		return gram, nil
+	case "kg", "2":
 		return kg, nil
-	case "liter", "2":
+	case "liter", "3":
 		return liter, nil
-	case "kardus", "3":
+	case "kardus", "4":
 		return kardus, nil
-	case "ikat", "4":
+	case "ikat", "5":
 		return ikat, nil
 	default:
 		return 0, errors.New("invalid unit")

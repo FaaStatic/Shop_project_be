@@ -115,7 +115,7 @@ func (p *productRepository) DeleteProduct(ctx context.Context, id uuid.UUID) err
 		return fmt.Errorf("failed to delete product: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("product with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("product with id %s not found", id))
 	}
 	return nil
 }
@@ -187,7 +187,7 @@ func (p *productRepository) GetProduct(ctx context.Context, id uuid.UUID) (*doma
 	result := p.db.WithContext(ctx).Where("id = ?", id).First(&item)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("product with id %s not found: %w", id, result.Error)
+			return nil, domain.NotFound(fmt.Sprintf("product with id %s not found", id))
 		}
 		return nil, fmt.Errorf("failed to get product: %w", result.Error)
 	}
@@ -204,7 +204,7 @@ func (p *productRepository) UpdateProduct(ctx context.Context, product *domain.P
 		return fmt.Errorf("failed to update product: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("product with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("product with id %s not found", id))
 	}
 	return nil
 }
@@ -219,7 +219,7 @@ func (p *productRepository) UpdateProductWithLock(ctx context.Context, id uuid.U
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", id).First(&product).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("product with id %s not found", id)
+				return domain.NotFound(fmt.Sprintf("product with id %s not found", id))
 			}
 			return internalErr(fmt.Errorf("failed to find product for update: %w", err))
 		}
@@ -263,7 +263,7 @@ func (p *productRepository) ReserveStock(ctx context.Context, items []domain.Pay
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ?", it.ProductID).First(&product).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("product with id %s not found", it.ProductID)
+					return domain.NotFound(fmt.Sprintf("product with id %s not found", it.ProductID))
 				}
 				return fmt.Errorf("failed to lock product: %w", err)
 			}
@@ -357,7 +357,7 @@ func (p *productRepository) UpdateStockWithLock(ctx context.Context, id uuid.UUI
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&product)
 		if result.Error != nil {
 			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("product with id %s not found", id)
+				return domain.NotFound(fmt.Sprintf("product with id %s not found", id))
 			}
 			return internalErr(fmt.Errorf("failed to find product for update: %w", result.Error))
 		}

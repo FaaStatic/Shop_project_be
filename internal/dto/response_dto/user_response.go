@@ -1,12 +1,16 @@
 package responsedto
 
+import "github.com/google/uuid"
+
 type UserLoginResponse struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	Role         string `json:"role"`
-	Token        string `json:"token,omitempty"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	ExpiredTime  int64  `json:"token_valid,omitempty"`
+	ID           uuid.UUID `json:"id"`
+	Username     string    `json:"username"`
+	Role         string    `json:"role"`
+	Token        string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	// ExpiresIn is the access-token lifetime in seconds (TTL), not an
+	// absolute expiry timestamp.
+	ExpiresIn int64 `json:"expires_in,omitempty"`
 }
 
 type UserRegisterResponse struct {

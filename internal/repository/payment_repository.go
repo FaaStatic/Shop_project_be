@@ -19,9 +19,15 @@ func NewPaymentRepository(db *gorm.DB) domain.PaymentRepository {
 	return &paymentRepository{db: db}
 }
 
-// Create stores a new payment (initial status pending).
+// Create stores a new payment (initial status pending). A duplicate order_id
+// (race between two concurrent charges) surfaces as a unique-constraint
+// violation, which gorm TranslateError maps to gorm.ErrDuplicatedKey — reported
+// as a domain.Duplicate so the handler returns 409 instead of 500.
 func (p *paymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
 	if err := p.db.WithContext(ctx).Create(payment).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return domain.Duplicate("payment with invoice " + payment.OrderID + " already exists")
+		}
 		return fmt.Errorf("failed to create payment: %w", err)
 	}
 	return nil

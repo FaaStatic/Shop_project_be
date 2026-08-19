@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -51,12 +52,12 @@ func (u *paymentUsecase) ChargeQris(ctx context.Context, request *requestdto.Cha
 	userID, err := uuid.Parse(request.UserId)
 	if err != nil {
 		u.log.Error("failed to parse user id", zap.Error(err))
-		return nil, fmt.Errorf("invalid user id format")
+		return nil, domain.InvalidID("invalid user id format")
 	}
 	customerID, err := parseOptionalUUID(request.CustomerId)
 	if err != nil {
 		u.log.Error("failed to parse customer id", zap.Error(err))
-		return nil, fmt.Errorf("invalid customer id format")
+		return nil, domain.InvalidID("invalid customer id format")
 	}
 
 	gross, items, err := u.buildOrder(ctx, toItemPairs(request.Items))
@@ -99,12 +100,12 @@ func (u *paymentUsecase) ChargeVA(ctx context.Context, request *requestdto.Charg
 	userID, err := uuid.Parse(request.UserId)
 	if err != nil {
 		u.log.Error("failed to parse user id", zap.Error(err))
-		return nil, fmt.Errorf("invalid user id format")
+		return nil, domain.InvalidID("invalid user id format")
 	}
 	customerID, err := parseOptionalUUID(request.CustomerId)
 	if err != nil {
 		u.log.Error("failed to parse customer id", zap.Error(err))
-		return nil, fmt.Errorf("invalid customer id format")
+		return nil, domain.InvalidID("invalid customer id format")
 	}
 
 	gross, items, err := u.buildOrder(ctx, toItemPairs(request.Items))
@@ -162,7 +163,7 @@ func (u *paymentUsecase) HandleNotification(ctx context.Context, notif *requestd
 	payment, err := u.paymentRepo.GetByOrderID(ctx, notif.OrderID)
 	if err != nil {
 		u.log.Error("failed to get payment", zap.Error(err))
-		return fmt.Errorf("failed to get payment")
+		return fmt.Errorf("failed to get payment: %w", domain.ErrInternal)
 	}
 	if payment == nil {
 		// Unknown order: still reply success (200) so Midtrans stops retrying.
@@ -233,7 +234,7 @@ func (u *paymentUsecase) applyAuthoritativeStatus(ctx context.Context, orderID, 
 	})
 	if err != nil {
 		u.log.Error("failed to process payment status", zap.Error(err), zap.String("order_id", orderID))
-		return fmt.Errorf("failed to update payment")
+		return fmt.Errorf("failed to update payment: %w", domain.ErrInternal)
 	}
 	if final == nil {
 		return nil // handled by another flow; no one to notify
@@ -306,13 +307,13 @@ func (u *paymentUsecase) GetStatus(ctx context.Context, orderID, requesterID, re
 	payment, err := u.paymentRepo.GetByOrderID(ctx, orderID)
 	if err != nil {
 		u.log.Error("failed to get payment", zap.Error(err))
-		return nil, fmt.Errorf("failed to get payment")
+		return nil, fmt.Errorf("failed to get payment: %w", domain.ErrInternal)
 	}
 	if payment == nil {
-		return nil, fmt.Errorf("payment not found")
+		return nil, domain.NotFound("payment not found")
 	}
 
-	allowed := requesterRole == "admin" || requesterRole == "superadmin" ||
+	allowed := requesterRole == "superadmin" ||
 		payment.UserID.String() == requesterID
 	u.log.Info("payment status access",
 		zap.String("order_id", payment.OrderID),
@@ -330,7 +331,7 @@ func (u *paymentUsecase) GetStatus(ctx context.Context, orderID, requesterID, re
 		Method:         payment.Method,
 		Status:         string(payment.Status),
 		MidtransStatus: payment.MidtransStatus,
-		GrossAmount:    int64(math.Round(payment.GrossAmount)),
+		GrossAmount:    payment.GrossAmount,
 	}
 	if payment.TransactionID != nil {
 		res.TransactionID = payment.TransactionID.String()
@@ -348,18 +349,21 @@ func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domai
 		if payment.StockReserved {
 			u.releaseStock(ctx, payment.Items, payment.OrderID)
 		}
+		if errors.Is(err, domain.ErrDuplicateInvoice) {
+			return nil, err
+		}
 		u.log.Error("failed to save payment", zap.Error(err))
-		return nil, fmt.Errorf("failed to save payment")
+		return nil, fmt.Errorf("failed to save payment: %w", domain.ErrInternal)
 	}
 
 	if mapInternalStatus(result.TransactionStatus, result.FraudStatus) == domain.PaymentSuccess {
 		if err := u.finalizeSuccess(ctx, payment); err != nil {
 			u.log.Error("failed to finalize successful payment", zap.Error(err))
-			return nil, fmt.Errorf("failed to finalize payment")
+			return nil, fmt.Errorf("failed to finalize payment: %w", domain.ErrInternal)
 		}
 		if err := u.paymentRepo.Update(ctx, payment); err != nil {
 			u.log.Error("failed to update payment", zap.Error(err))
-			return nil, fmt.Errorf("failed to update payment")
+			return nil, fmt.Errorf("failed to update payment: %w", domain.ErrInternal)
 		}
 		// Some gateway charges settle synchronously without a webhook follow-up; notify the user right away.
 		u.notifyPaymentResult(ctx, payment, true)
@@ -369,7 +373,7 @@ func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domai
 		OrderID:        payment.OrderID,
 		Method:         payment.Method,
 		Status:         string(payment.Status),
-		GrossAmount:    int64(math.Round(payment.GrossAmount)),
+		GrossAmount:    payment.GrossAmount,
 		MidtransStatus: payment.MidtransStatus,
 		QrString:       payment.QRString,
 		QrUrl:          payment.QRURL,
@@ -453,7 +457,7 @@ func (u *paymentUsecase) finalizeSuccess(ctx context.Context, payment *domain.Pa
 // dies once the response is sent, so it is detached with WithoutCancel.
 func (u *paymentUsecase) notifyPaymentResult(ctx context.Context, payment *domain.Payment, success bool) {
 	userID, orderID := payment.UserID.String(), payment.OrderID
-	amount := int64(math.Round(payment.GrossAmount))
+	amount := payment.GrossAmount
 	notifCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	go func() {
 		defer cancel()
@@ -470,20 +474,23 @@ func (u *paymentUsecase) buildOrder(ctx context.Context, items []itemPair) (int6
 	if len(items) == 0 {
 		return 0, nil, fmt.Errorf("items is required")
 	}
-	var gross float64
+	var gross int64
 	paymentItems := make([]domain.PaymentItem, 0, len(items))
 	for _, it := range items {
 		productID, err := uuid.Parse(it.productID)
 		if err != nil {
-			return 0, nil, fmt.Errorf("invalid product id format")
+			return 0, nil, domain.InvalidID("invalid product id format")
 		}
 		product, err := u.productRepo.GetProduct(ctx, productID)
 		if err != nil {
 			u.log.Error("failed to get product", zap.Error(err))
-			return 0, nil, fmt.Errorf("product %s not found", it.productID)
+			if errors.Is(err, domain.ErrNotFound) {
+				return 0, nil, domain.NotFound(fmt.Sprintf("product %s not found", it.productID))
+			}
+			return 0, nil, fmt.Errorf("failed to get product: %w", domain.ErrInternal)
 		}
 		if product == nil {
-			return 0, nil, fmt.Errorf("product %s not found", it.productID)
+			return 0, nil, domain.NotFound(fmt.Sprintf("product %s not found", it.productID))
 		}
 		// Digital products need a per-line destination (see addTransaction), which
 		// the online cart/PaymentItem does not carry. Selling them online would
@@ -497,26 +504,25 @@ func (u *paymentUsecase) buildOrder(ctx context.Context, items []itemPair) (int6
 		if product.Stock < it.qty {
 			return 0, nil, fmt.Errorf("insufficient stock for product %s", it.productID)
 		}
-		gross += product.SellingPrice * it.qty
+		gross += int64(math.Round(float64(product.SellingPrice) * it.qty))
 		paymentItems = append(paymentItems, domain.PaymentItem{ProductID: productID, Qty: it.qty})
 	}
-	return int64(math.Round(gross)), paymentItems, nil
+	return gross, paymentItems, nil
 }
 
 // resolveOrderID uses the no_invoice from the client if present (and unused),
 // otherwise generates a new one. The order ID must be unique in Midtrans.
 func (u *paymentUsecase) resolveOrderID(ctx context.Context, requested string) (string, error) {
-	orderID := strings.TrimSpace(requested)
-	if orderID == "" {
-		orderID = generateInvoice()
-	}
+	// Force the INV- prefix so the payment order_id always matches the transaction
+	// no_invoice created at finalization (addTransaction applies ensureInvoicePrefix too).
+	orderID := ensureInvoicePrefix(requested)
 	existing, err := u.paymentRepo.GetByOrderID(ctx, orderID)
 	if err != nil {
 		u.log.Error("failed to check existing payment", zap.Error(err))
-		return "", fmt.Errorf("failed to check existing payment")
+		return "", fmt.Errorf("failed to check existing payment: %w", domain.ErrInternal)
 	}
 	if existing != nil {
-		return "", fmt.Errorf("payment with invoice %s already exists", orderID)
+		return "", domain.Duplicate(fmt.Sprintf("payment with invoice %s already exists", orderID))
 	}
 	return orderID, nil
 }
@@ -527,7 +533,7 @@ func (u *paymentUsecase) newPayment(orderID, method string, userID uuid.UUID, cu
 		UserID:         userID,
 		CustomerID:     customerID,
 		Method:         method,
-		GrossAmount:    float64(gross),
+		GrossAmount:    gross,
 		Status:         domain.PaymentPending,
 		MidtransTrxID:  result.TransactionID,
 		MidtransStatus: result.TransactionStatus,
@@ -579,19 +585,25 @@ func parseOptionalUUID(s *string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
-// Midtrans standard per-transaction fees, passed on to the buyer. Percentages
-// are rounded UP to the nearest rupiah so the merchant never absorbs a fraction.
-// Source: Midtrans pricing page (QRIS 0.7%, Virtual Account Rp4.000 flat).
+// Midtrans standard per-transaction fees, passed on to the buyer so the
+// merchant nets the exact subtotal. Midtrans fees are exclusive of 11% VAT,
+// so the values below already include it (QRIS MDR 0.7% + VAT; VA Rp4.000 +
+// VAT = Rp4.440). Amounts are rounded UP so the merchant never absorbs a
+// fraction.
+// Source: Midtrans pricing page (updated 2025-11-11).
 const (
-	feeQrisRate = 0.007
-	feeVAFlat   = 4000
+	feeQrisRate = 0.00777 // 0.7% MDR + 11% VAT
+	feeVAFlat   = 4440    // Rp4.000 + 11% VAT
 )
 
 // applyFee returns gross = subtotal + channel fee for online charges.
+// Midtrans computes the QRIS MDR on the full gross amount (fee-on-fee), so
+// the fee must be solved as gross = subtotal / (1 - rate) to fully pass the
+// cost to the buyer.
 func applyFee(method string, subtotal int64) int64 {
 	switch method {
 	case "qris":
-		return subtotal + int64(math.Ceil(float64(subtotal)*feeQrisRate))
+		return int64(math.Ceil(float64(subtotal) / (1 - feeQrisRate)))
 	case "va":
 		return subtotal + feeVAFlat
 	default:
@@ -633,7 +645,10 @@ func mapInternalStatus(trxStatus, fraudStatus string) domain.PaymentStatus {
 }
 
 func generateInvoice() string {
-	return invoicePrefix + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:13], "-", ""))
+	// 16 hex chars (64 bits) from the UUID keep collisions negligible while
+	// staying short enough for receipts; the payments.order_id unique index is
+	// the final safety net.
+	return invoicePrefix + strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:16])
 }
 
 // jakartaLoc is used to parse Midtrans times sent in WIB without an offset.

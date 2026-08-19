@@ -8,9 +8,9 @@ func TestApplyFee(t *testing.T) {
 		subtotal int64
 		want     int64
 	}{
-		{"qris", 100000, 100700}, // +0.7%
-		{"qris", 10001, 10072},   // 70.007 -> ceil 71 -> 10072
-		{"va", 100000, 104000},   // +Rp4.000 flat
+		{"qris", 100000, 100784}, // gross = ceil(subtotal / (1 - 0.00777))
+		{"qris", 10001, 10080},   // fee-on-fee, rounded UP
+		{"va", 100000, 104440},   // +Rp4.440 (Rp4.000 + 11% VAT)
 		{"cash", 100000, 100000}, // unknown method: no fee
 	}
 	for _, c := range cases {

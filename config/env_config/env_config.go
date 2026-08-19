@@ -63,7 +63,10 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	Secret          string
+	Secret string
+	// AccessTokenTTL / RefreshTokenTTL are read from YAML in SECONDS.
+	// cmd/fiber_command.go converts them to minutes/hours before passing
+	// to jwt.NewJWTService (which expects minutes for access, hours for refresh).
 	AccessTokenTTL  int
 	RefreshTokenTTL int
 }

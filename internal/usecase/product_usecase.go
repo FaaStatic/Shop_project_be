@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
@@ -34,12 +35,15 @@ func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto
 	productUid, errUid := uuid.Parse(request.ID)
 	if errUid != nil {
 		p.log.Error("failed to parse product id", zap.Error(errUid))
-		return nil, fmt.Errorf("invalid product id format")
+		return nil, domain.InvalidID("invalid product id format")
 	}
 	products, err := p.productRepo.GetProduct(ctx, productUid)
 	if err != nil {
 		p.log.Error("failed to get product", zap.Error(err))
-		return nil, fmt.Errorf("failed to get product")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get product: %w", domain.ErrInternal)
 	}
 	return products, nil
 }
@@ -59,7 +63,7 @@ func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request
 	file, err := request.FileUpload.Open()
 	if err != nil {
 		p.log.Error("failed to open uploaded file", zap.Error(err))
-		return fmt.Errorf("failed to open uploaded file")
+		return fmt.Errorf("failed to open uploaded file: %w", domain.ErrInternal)
 	}
 	defer file.Close()
 
@@ -95,9 +99,9 @@ func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request
 			ProductName:      row.ProductName,
 			Unit:             unit,
 			ProductType:      productType,
-			PurchasePrice:    row.PurchasePrice,
-			SellingPrice:     row.SellingPrice,
-			SellingPriceDebt: row.SellingPriceDebt,
+			PurchasePrice:    int64(math.Round(row.PurchasePrice)),
+			SellingPrice:     int64(math.Round(row.SellingPrice)),
+			SellingPriceDebt: int64(math.Round(row.SellingPriceDebt)),
 			Stock:            row.Stock,
 			Category:         row.Category,
 			Image:            row.Image,
@@ -115,7 +119,7 @@ func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request
 	result, err := p.productRepo.AddBulkProduct(ctx, products)
 	if err != nil {
 		p.log.Error("failed to bulk insert products", zap.Error(err))
-		return fmt.Errorf("failed to import products")
+		return fmt.Errorf("failed to import products: %w", domain.ErrInternal)
 	}
 
 	p.log.Info("bulk product import finished",
@@ -144,7 +148,7 @@ func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *re
 	})
 	if err != nil {
 		p.log.Error("failed to add product", zap.Error(err))
-		return fmt.Errorf("failed to add product")
+		return fmt.Errorf("failed to add product: %w", domain.ErrInternal)
 	}
 	return nil
 }
@@ -153,13 +157,16 @@ func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *re
 func (p *productUsecase) DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error {
 	id, errId := uuid.Parse(request.ID)
 	if errId != nil {
-		p.log.Error("failed to delete product", zap.Error(errId))
-		return fmt.Errorf("failed to delete product")
+		p.log.Error("failed to parse product id", zap.Error(errId))
+		return domain.InvalidID("invalid product id format")
 	}
 	err := p.productRepo.DeleteProduct(ctx, id)
 	if err != nil {
 		p.log.Error("failed to delete product", zap.Error(err))
-		return fmt.Errorf("failed to delete product")
+		if errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("failed to delete product: %w", domain.ErrInternal)
 	}
 	return nil
 }
@@ -189,7 +196,7 @@ func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request
 		lastID, err := uuid.Parse(lastId)
 		if err != nil {
 			p.log.Error("failed to parse last_id", zap.Error(err))
-			return nil, fmt.Errorf("invalid last_id format")
+			return nil, domain.InvalidID("invalid last_id format")
 		}
 		cursor = &paginated.CursorMeta{
 			AfterTime: afterTime,
@@ -208,7 +215,7 @@ func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request
 	result, err := p.productRepo.GetAllProduct(ctx, filter)
 	if err != nil {
 		p.log.Error("failed to get all products", zap.Error(err))
-		return nil, fmt.Errorf("failed to get all products")
+		return nil, fmt.Errorf("failed to get all products: %w", domain.ErrInternal)
 	}
 
 	products := make([]responsedto.ProductDtoResponse, 0, len(result.DataItem))
@@ -250,7 +257,7 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 	id, err := uuid.Parse(request.ID)
 	if err != nil {
 		p.log.Error("failed to parse product id", zap.Error(err))
-		return fmt.Errorf("invalid product id format")
+		return domain.InvalidID("invalid product id format")
 	}
 
 	fields := make(map[string]interface{})
@@ -288,7 +295,7 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 		// Hide DB/driver detail on internal failures; keep business errors
 		// (e.g. insufficient stock) visible to the caller.
 		if errors.Is(err, domain.ErrInternal) {
-			return fmt.Errorf("failed to update product")
+			return fmt.Errorf("failed to update product: %w", domain.ErrInternal)
 		}
 		return fmt.Errorf("failed to update product: %w", err)
 	}
@@ -302,13 +309,13 @@ func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *reque
 	id, err := uuid.Parse(request.ID)
 	if err != nil {
 		p.log.Error("failed to parse product id", zap.Error(err))
-		return fmt.Errorf("invalid product id format")
+		return domain.InvalidID("invalid product id format")
 	}
 
 	if err := p.productRepo.UpdateStockWithLock(ctx, id, delta); err != nil {
 		p.log.Error("failed to update stock", zap.Error(err))
 		if errors.Is(err, domain.ErrInternal) {
-			return fmt.Errorf("failed to update stock")
+			return fmt.Errorf("failed to update stock: %w", domain.ErrInternal)
 		}
 		return fmt.Errorf("failed to update stock: %w", err)
 	}

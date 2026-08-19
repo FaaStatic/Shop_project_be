@@ -51,8 +51,8 @@ func drawDailyHeader(pdf *fpdf.Fpdf) {
 }
 
 // formatRupiah formats a number into a Rupiah currency string, e.g. "Rp 1.250.000".
-func formatRupiah(v float64) string {
-	n := int64(math.Round(v))
+func formatRupiah(v int64) string {
+	n := v
 	negative := n < 0
 	if negative {
 		n = -n

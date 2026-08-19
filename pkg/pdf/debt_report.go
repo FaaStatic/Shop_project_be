@@ -12,8 +12,8 @@ type DebtReportData struct {
 	CustomerName    string
 	CustomerPhone   string
 	CustomerAddress string
-	TotalDebt       float64
-	RemainingDebt   float64
+	TotalDebt       int64
+	RemainingDebt   int64
 	Status          string
 	DueDate         time.Time
 	Payments        []DebtPaymentRow
@@ -24,7 +24,7 @@ type DebtReportData struct {
 type DebtPaymentRow struct {
 	Date    time.Time
 	Cashier string
-	Nominal float64
+	Nominal int64
 }
 
 // GenerateDebtReport builds a PDF debt report for a customer (summary +

@@ -45,7 +45,7 @@ func (h *PaymentHandler) ChargeQris(c fiber.Ctx) error {
 	}
 	res, err := h.usecase.ChargeQris(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "qris payment created", res)
 }
@@ -74,7 +74,7 @@ func (h *PaymentHandler) ChargeVA(c fiber.Ctx) error {
 	}
 	res, err := h.usecase.ChargeVA(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "va payment created", res)
 }
@@ -127,7 +127,7 @@ func (h *PaymentHandler) Notification(c fiber.Ctx) error {
 		if errors.Is(err, domain.ErrInvalidSignature) {
 			return response.Error(c, fiber.StatusForbidden, "invalid signature", err)
 		}
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "notification processed", nil)
 }

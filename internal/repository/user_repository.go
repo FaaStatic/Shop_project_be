@@ -24,7 +24,7 @@ func (u *userRepository) GetUserById(ctx context.Context, id uuid.UUID) (*domain
 	result := u.db.WithContext(ctx).Where("id = ?", id).First(&userData)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("user not found: %w", result.Error)
+			return nil, domain.NotFound("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", result.Error)
 	}
@@ -53,7 +53,7 @@ func (u *userRepository) GetUserLogin(ctx context.Context, id uuid.UUID) (*domai
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("item not found")
+			return nil, domain.NotFound("item not found")
 		}
 		return nil, result.Error
 	}
