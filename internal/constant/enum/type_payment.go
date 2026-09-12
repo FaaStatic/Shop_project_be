@@ -14,9 +14,6 @@ const (
 	qris
 )
 
-// Hutang is the value of the "hutang" (credit/debt) payment type. It is
-// exported so repository report SQL can reference the enum value without
-// hardcoding its numeric value.
 const Hutang MoneyPayment = hutang
 
 func (typeItem MoneyPayment) String() string {

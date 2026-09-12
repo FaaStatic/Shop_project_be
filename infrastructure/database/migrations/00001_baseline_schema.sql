@@ -47,9 +47,14 @@ CREATE TABLE IF NOT EXISTS products (
     deleted_at         timestamptz,
     CONSTRAINT products_pkey PRIMARY KEY (id),
     CONSTRAINT chk_products_unit CHECK (unit IN (0, 1, 2, 3, 4, 5)),
-    CONSTRAINT chk_products_product_type CHECK (product_type IN (0, 1))
+    CONSTRAINT chk_products_product_type CHECK (product_type IN (0, 1)),
+    -- Backstop for the invariant the stock paths enforce under row locks.
+    CONSTRAINT chk_products_stock_non_negative CHECK (stock >= 0)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products (sku);
+-- Partial, like idx_transactions_no_invoice: a soft-deleted product must not
+-- reserve its SKU forever. AddBulkProduct's ON CONFLICT repeats the predicate
+-- so Postgres can infer this index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products (sku) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_products_category ON products (category);
 CREATE INDEX IF NOT EXISTS idx_products_deleted_at ON products (deleted_at);
 
@@ -65,9 +70,20 @@ CREATE TABLE IF NOT EXISTS debts (
     deleted_at     timestamptz,
     CONSTRAINT debts_pkey PRIMARY KEY (id),
     CONSTRAINT chk_debts_status CHECK (status IN (0, 1)),
+    CONSTRAINT chk_debts_remaining_range CHECK (remaining_debt >= 0 AND remaining_debt <= total_debt),
     CONSTRAINT fk_customers_debts FOREIGN KEY (customer_id) REFERENCES customers (id)
 );
 CREATE INDEX IF NOT EXISTS idx_debts_deleted_at ON debts (deleted_at);
+CREATE INDEX IF NOT EXISTS idx_debts_customer_id ON debts (customer_id);
+CREATE INDEX IF NOT EXISTS idx_debts_status ON debts (status);
+-- A SELECT ... FOR UPDATE in AddDebt/CreateTransaction only locks rows that
+-- already exist, so two concurrent hutang sales for the same customer can
+-- both see "no open debt" and both insert, leaving two independent open
+-- debts. This partial unique index is the actual guard: the second concurrent
+-- insert fails with a unique_violation, which the repository's retry layer
+-- (see isRetryableTxError) retries — on retry it finds the row the first
+-- transaction committed and updates it instead.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_debts_customer_open ON debts (customer_id) WHERE status = 0 AND deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS debt_payments (
     id            uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -75,10 +91,22 @@ CREATE TABLE IF NOT EXISTS debt_payments (
     user_id       uuid NOT NULL,
     nominal_bayar bigint NOT NULL,
     tanggal_bayar timestamptz,
+    -- idempotency_key, when set by the client, lets a retried PayDebt request
+    -- (lost response, app crash) replay the original result instead of
+    -- double-recording the payment.
+    idempotency_key varchar(100),
+    -- previous_remaining_debt is remaining_debt just before this payment was
+    -- applied, so a replayed (idempotent) request can return the exact
+    -- original receipt numbers instead of recomputing them from current state.
+    previous_remaining_debt bigint NOT NULL DEFAULT 0,
     CONSTRAINT debt_payments_pkey PRIMARY KEY (id),
     CONSTRAINT fk_debts_debt_payments FOREIGN KEY (debt_id) REFERENCES debts (id),
     CONSTRAINT fk_debt_payments_user FOREIGN KEY (user_id) REFERENCES users (id)
 );
+CREATE INDEX IF NOT EXISTS idx_debt_payments_debt_id ON debt_payments (debt_id);
+CREATE INDEX IF NOT EXISTS idx_debt_payments_user_id ON debt_payments (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_debt_payments_idempotency
+    ON debt_payments (debt_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS transactions (
     id                uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -98,9 +126,19 @@ CREATE TABLE IF NOT EXISTS transactions (
     CONSTRAINT fk_debts_transactions FOREIGN KEY (debt_id) REFERENCES debts (id),
     CONSTRAINT fk_users_transactions FOREIGN KEY (user_id) REFERENCES users (id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_no_invoice ON transactions (no_invoice);
+-- Partial on purpose: transactions are soft-deleted, and a plain unique index
+-- reserves an invoice number forever once its transaction is deleted — the
+-- pre-insert check (which excludes soft-deleted rows) passes, then the INSERT
+-- fails with a confusing "already exists" for an invoice the operator can no
+-- longer see. Scoping it to live rows lets a cancelled invoice number be reused
+-- while still stopping two live transactions from sharing one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_no_invoice
+    ON transactions (no_invoice) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_transactions_debt_id ON transactions (debt_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_deleted_at ON transactions (deleted_at);
+CREATE INDEX IF NOT EXISTS idx_transactions_customer_id ON transactions (customer_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions (user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions (created_at);
 
 CREATE TABLE IF NOT EXISTS transactions_detail (
     id             uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -117,6 +155,8 @@ CREATE TABLE IF NOT EXISTS transactions_detail (
     CONSTRAINT fk_transactions_transaction_detail FOREIGN KEY (transaction_id) REFERENCES transactions (id),
     CONSTRAINT fk_transactions_detail_product FOREIGN KEY (product_id) REFERENCES products (id)
 );
+CREATE INDEX IF NOT EXISTS idx_transactions_detail_transaction_id ON transactions_detail (transaction_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_detail_product_id ON transactions_detail (product_id);
 
 CREATE TABLE IF NOT EXISTS payments (
     id               uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -124,6 +164,12 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id          uuid NOT NULL,
     customer_id      uuid,
     method           varchar(20) NOT NULL,
+    -- gross_amount is what the buyer pays = subtotal_amount + fee_amount. The
+    -- parts are stored separately so the books reconcile: the sale is worth the
+    -- subtotal, the channel fee is only passed through, and drift between them
+    -- is detectable instead of silently folded into one number.
+    subtotal_amount  bigint NOT NULL DEFAULT 0,
+    fee_amount       bigint NOT NULL DEFAULT 0,
     gross_amount     bigint NOT NULL,
     status           varchar(20) NOT NULL DEFAULT 'pending',
     midtrans_trx_id  varchar(100),
@@ -145,14 +191,24 @@ CREATE TABLE IF NOT EXISTS payments (
     updated_at       timestamptz,
     deleted_at       timestamptz,
     CONSTRAINT payments_pkey PRIMARY KEY (id),
-    CONSTRAINT chk_payments_status CHECK (status IN ('pending', 'success', 'failed', 'expired')),
+    -- 'settling' is the hand-off state between claiming a settled payment
+    -- (phase 1, under a row lock) and creating its sales transaction (phase 2,
+    -- on its own connection). Without it, a crash between the phases is
+    -- indistinguishable from a payment that was never paid at all.
+    CONSTRAINT chk_payments_status CHECK (status IN ('pending', 'settling', 'success', 'failed', 'expired')),
     CONSTRAINT fk_payments_user FOREIGN KEY (user_id) REFERENCES users (id),
     CONSTRAINT fk_payments_customer FOREIGN KEY (customer_id) REFERENCES customers (id),
     CONSTRAINT fk_payments_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_order_id ON payments (order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments (status);
+-- The reconciliation sweep scans by status on every tick, least recently
+-- touched first: a payment it fails on is touched and rotates to the back.
+CREATE INDEX IF NOT EXISTS idx_payments_status_updated_at ON payments (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_payments_deleted_at ON payments (deleted_at);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments (user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments (customer_id);
+CREATE INDEX IF NOT EXISTS idx_payments_transaction_id ON payments (transaction_id);
 
 CREATE TABLE IF NOT EXISTS device_tokens (
     id           uuid DEFAULT gen_random_uuid() NOT NULL,

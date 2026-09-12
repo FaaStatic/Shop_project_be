@@ -15,31 +15,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// Fixture errors shared by the delete-transaction tests below.
 var (
 	errNotFoundFixture = errors.New("transaction with id xxx not found")
 	errBoomFixture     = errors.New("boom: connection reset by peer")
 )
 
-// wrapInternal mimics how the repository wraps a driver failure with
-// domain.ErrInternal so the usecase layer hides its detail from the caller.
 func wrapInternal(err error) error {
 	return fmt.Errorf("%w: %v", domain.ErrInternal, err)
 }
 
-// fakeTrxRepo is a same-package fake of domain.TransactionRepository: only the
-// methods exercised by transactionUsecase in these tests are implemented, the
-// rest fall through to the embedded nil interface (and would panic if called,
-// flagging a test gap rather than silently succeeding).
 type fakeTrxRepo struct {
 	domain.TransactionRepository
 
 	existingInvoice *domain.Transactions
 	checkErr        error
 
-	createErr      error
-	createDebtSnap *domain.TransactionDebtSnapshot
-	// captured arguments of the last CreateTransaction call, for assertions.
+	createErr          error
+	createDebtSnap     *domain.TransactionDebtSnapshot
 	created            *domain.Transactions
 	createdIsHutang    bool
 	createdDeductStock bool
@@ -94,8 +86,6 @@ func (f *fakeTrxCustomerRepo) ExistsCustomer(ctx context.Context, id uuid.UUID) 
 	return f.exists, f.err
 }
 
-// fakeTrxProductRepo serves GetProduct by id from a map keyed by the product's
-// own uuid, so tests can control per-line pricing/type/destination behavior.
 type fakeTrxProductRepo struct {
 	domain.ProductRepository
 	products map[uuid.UUID]*domain.Products
@@ -109,8 +99,10 @@ func (f *fakeTrxProductRepo) GetProduct(ctx context.Context, id uuid.UUID) (*dom
 	return p, nil
 }
 
-// newTestTransactionUsecase wires a transactionUsecase with fakes, using
-// sensible defaults that individual tests override.
+func (f *fakeTrxProductRepo) GetProductIncludingDeleted(ctx context.Context, id uuid.UUID) (*domain.Products, error) {
+	return f.GetProduct(ctx, id)
+}
+
 func newTestTransactionUsecase(trx *fakeTrxRepo, prod *fakeTrxProductRepo, user *fakeTrxUserRepo, cust *fakeTrxCustomerRepo) *transactionUsecase {
 	return &transactionUsecase{
 		trxRepo:      trx,
@@ -160,7 +152,6 @@ func TestAddTransaction_CashSale_Success(t *testing.T) {
 	if !trxRepo.createdDeductStock {
 		t.Error("AddTransaction must deduct stock (deductStock=true)")
 	}
-	// Cash price uses SellingPrice, not the debt price.
 	wantTotal := int64(24000)
 	if trxRepo.created.TotalTransaction != wantTotal {
 		t.Errorf("total = %v, want %v (must use SellingPrice for cash)", trxRepo.created.TotalTransaction, wantTotal)
@@ -226,7 +217,6 @@ func TestAddTransaction_HutangSale_UsesDebtPriceAndRequiresCustomer(t *testing.T
 		t.Error("hutang transaction must be linked to the given customer")
 	}
 
-	// The response must carry the debt receipt info for a hutang sale.
 	if resp.DebtInfo == nil {
 		t.Fatal("expected DebtInfo to be populated for a hutang sale")
 	}
@@ -350,7 +340,7 @@ func TestAddTransaction_DigitalProductRequiresDestination(t *testing.T) {
 	productID := uuid.New()
 	trxRepo := &fakeTrxRepo{}
 	prodRepo := &fakeTrxProductRepo{products: map[uuid.UUID]*domain.Products{
-		productID: {ID: productID, ProductType: 1 /* enum.Digital */, SellingPrice: 5000},
+		productID: {ID: productID, ProductType: 1, SellingPrice: 5000},
 	}}
 	userRepo := &fakeTrxUserRepo{user: validUser()}
 	custRepo := &fakeTrxCustomerRepo{}

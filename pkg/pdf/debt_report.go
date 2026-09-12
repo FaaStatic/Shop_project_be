@@ -1,11 +1,7 @@
 package pdf
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
-// DebtReportData is the data for building a customer's debt report/receipt.
 type DebtReportData struct {
 	StoreName       string
 	DebtID          string
@@ -20,15 +16,12 @@ type DebtReportData struct {
 	GeneratedAt     time.Time
 }
 
-// DebtPaymentRow is a single row of debt payment history.
 type DebtPaymentRow struct {
 	Date    time.Time
 	Cashier string
 	Nominal int64
 }
 
-// GenerateDebtReport builds a PDF debt report for a customer (summary +
-// payment history) then returns the file's relative URL.
 func GenerateDebtReport(data DebtReportData) (string, error) {
 	pdf := newDocument()
 	pdf.AddPage()
@@ -38,7 +31,6 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 		storeName = "Shop Project"
 	}
 
-	// Header
 	pdf.SetFont("Arial", "B", 18)
 	pdf.CellFormat(0, 10, storeName, "", 1, "C", false, 0, "")
 	pdf.SetFont("Arial", "B", 13)
@@ -47,7 +39,6 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	drawLine(pdf)
 	pdf.Ln(4)
 
-	// Info customer
 	pdf.SetFont("Arial", "", 10)
 	info := [][2]string{
 		{"Nama", data.CustomerName},
@@ -65,7 +56,6 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	}
 	pdf.Ln(4)
 
-	// Debt summary
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Ringkasan", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -75,9 +65,9 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 		paid = 0
 	}
 	rows := [][2]string{
-		{"Total Hutang", formatRupiah(data.TotalDebt)},
-		{"Sudah Dibayar", formatRupiah(paid)},
-		{"Sisa Hutang", formatRupiah(data.RemainingDebt)},
+		{"Total Hutang", FormatRupiah(data.TotalDebt)},
+		{"Sudah Dibayar", FormatRupiah(paid)},
+		{"Sisa Hutang", FormatRupiah(data.RemainingDebt)},
 	}
 	for i, row := range rows {
 		if i == len(rows)-1 {
@@ -90,7 +80,6 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 	}
 	pdf.Ln(6)
 
-	// Payment history
 	pdf.SetFont("Arial", "B", 12)
 	pdf.CellFormat(0, 8, "Riwayat Pembayaran", "", 1, "L", false, 0, "")
 	pdf.Ln(1)
@@ -109,22 +98,20 @@ func GenerateDebtReport(data DebtReportData) (string, error) {
 			}
 			pdf.CellFormat(50, 7, formatDateTime(p.Date), "1", 0, "L", false, 0, "")
 			pdf.CellFormat(80, 7, truncate(p.Cashier, 45), "1", 0, "L", false, 0, "")
-			pdf.CellFormat(50, 7, formatRupiah(p.Nominal), "1", 1, "R", false, 0, "")
+			pdf.CellFormat(50, 7, FormatRupiah(p.Nominal), "1", 1, "R", false, 0, "")
 		}
 		pdf.SetFont("Arial", "B", 9)
 		pdf.CellFormat(130, 8, "TOTAL DIBAYAR", "1", 0, "R", false, 0, "")
-		pdf.CellFormat(50, 8, formatRupiah(paid), "1", 1, "R", false, 0, "")
+		pdf.CellFormat(50, 8, FormatRupiah(paid), "1", 1, "R", false, 0, "")
 	}
 
 	pdf.Ln(10)
 	pdf.SetFont("Arial", "I", 9)
 	pdf.CellFormat(0, 5, "Dicetak pada "+formatDateTime(data.GeneratedAt), "", 1, "C", false, 0, "")
 
-	filename := fmt.Sprintf("hutang-%s.pdf", sanitizeFilename(data.DebtID))
-	return saveDocument(pdf, filename)
+	return saveDocument(pdf, "hutang-"+sanitizeFilename(data.DebtID))
 }
 
-// formatDueDate formats the due date; zero -> "-".
 func formatDueDate(t time.Time) string {
 	if t.IsZero() {
 		return "-"

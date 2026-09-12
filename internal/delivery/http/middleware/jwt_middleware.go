@@ -38,13 +38,12 @@ func (m *JWTMiddleware) Auth(log *zap.Logger) fiber.Handler {
 		}
 
 		ctx := c.Context()
-		sessionKey := "session:" + token
+		sessionKey := "session:" + jwt.HashToken(token)
 		exists, err := m.sessionRepo.Exists(ctx, sessionKey)
 		if err != nil || !exists {
 			return response.Error(c, fiber.StatusUnauthorized, "Session not valid user please login first!", nil)
 		}
 		c.Locals("user_id", claims.UserID)
-		c.Locals("email", claims.Email)
 		c.Locals("role", claims.Role)
 		c.Locals("access_token", token)
 
@@ -69,9 +68,6 @@ func (m *JWTMiddleware) RequireRole(roles ...string) fiber.Handler {
 	}
 }
 
-// extractToken only accepts a Bearer token from the Authorization header. The cookie
-// fallback was intentionally removed: the official client (Flutter) always uses the
-// header, and a cookie path without CSRF protection would open a hole if a web frontend is added later.
 func extractToken(c fiber.Ctx) string {
 	auth := c.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {

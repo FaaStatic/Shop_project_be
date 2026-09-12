@@ -96,10 +96,7 @@ func (h *PaymentHandler) Status(c fiber.Ctx) error {
 	role, _ := c.Locals("role").(string)
 	res, err := h.usecase.GetStatus(c.Context(), orderID, middleware.GetUserID(c), role)
 	if err != nil {
-		if errors.Is(err, domain.ErrPaymentAccessDenied) {
-			return response.Error(c, fiber.StatusForbidden, "akses ditolak", err)
-		}
-		return response.Error(c, fiber.StatusNotFound, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "payment status fetched", res)
 }
@@ -122,8 +119,6 @@ func (h *PaymentHandler) Notification(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid notification body", err)
 	}
 	if err := h.usecase.HandleNotification(c.Context(), &req); err != nil {
-		// Invalid signature → 403 (do not retry). Other errors → 500 so
-		// Midtrans resends the notification.
 		if errors.Is(err, domain.ErrInvalidSignature) {
 			return response.Error(c, fiber.StatusForbidden, "invalid signature", err)
 		}

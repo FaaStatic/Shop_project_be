@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateTokenPair_ProducesDistinctAccessAndRefreshTokens(t *testing.T) {
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 
 	pair, err := svc.GenerateTokenPair("user-1", "staff")
 	if err != nil {
@@ -27,7 +27,7 @@ func TestGenerateTokenPair_ProducesDistinctAccessAndRefreshTokens(t *testing.T) 
 }
 
 func TestValidateToken_AccessTokenRoundTrip(t *testing.T) {
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 
 	pair, err := svc.GenerateTokenPair("user-42", "superadmin")
 	if err != nil {
@@ -44,7 +44,7 @@ func TestValidateToken_AccessTokenRoundTrip(t *testing.T) {
 }
 
 func TestValidateToken_RefreshTokenHasRefreshType(t *testing.T) {
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 
 	pair, err := svc.GenerateTokenPair("user-42", "staff")
 	if err != nil {
@@ -61,11 +61,7 @@ func TestValidateToken_RefreshTokenHasRefreshType(t *testing.T) {
 }
 
 func TestValidateToken_RejectsExpiredToken(t *testing.T) {
-	// A negative TTL (via accessMin=0 won't expire fast enough); build the
-	// expired token directly using the same construction as generateToken but
-	// with a TTL already in the past, so this test does not depend on real
-	// clock sleeps.
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 	expired, err := svc.generateToken("user-1", "staff", "access", -1*time.Minute)
 	if err != nil {
 		t.Fatalf("failed to build expired token fixture: %v", err)
@@ -77,8 +73,8 @@ func TestValidateToken_RejectsExpiredToken(t *testing.T) {
 }
 
 func TestValidateToken_RejectsWrongSecret(t *testing.T) {
-	svc := NewJWTService("secret-a", 15, 24)
-	other := NewJWTService("secret-b", 15, 24)
+	svc := NewJWTService("secret-a", 15*time.Minute, 24*time.Hour)
+	other := NewJWTService("secret-b", 15*time.Minute, 24*time.Hour)
 
 	pair, err := svc.GenerateTokenPair("user-1", "staff")
 	if err != nil {
@@ -91,7 +87,7 @@ func TestValidateToken_RejectsWrongSecret(t *testing.T) {
 }
 
 func TestValidateToken_RejectsMalformedToken(t *testing.T) {
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 
 	if _, err := svc.ValidateToken("not-a-jwt-token"); err == nil {
 		t.Fatal("expected an error for a malformed token string")
@@ -99,11 +95,8 @@ func TestValidateToken_RejectsMalformedToken(t *testing.T) {
 }
 
 func TestValidateToken_RejectsUnexpectedSigningMethod(t *testing.T) {
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 
-	// Craft a token using the "none" algorithm, which ValidateToken must
-	// reject even though the header claims to be self-consistent — accepting
-	// it would allow an attacker to forge tokens without knowing the secret.
 	claims := Claims{
 		UserID: "attacker",
 		Role:   "superadmin",
@@ -121,9 +114,7 @@ func TestValidateToken_RejectsUnexpectedSigningMethod(t *testing.T) {
 }
 
 func TestValidateToken_RejectsHS256AlgConfusionWithNoneCheck(t *testing.T) {
-	// Belt-and-suspenders: even a syntactically valid-looking HS-signed token
-	// with a tampered payload (bit flip in the signature) must fail.
-	svc := NewJWTService("test-secret", 15, 24)
+	svc := NewJWTService("test-secret", 15*time.Minute, 24*time.Hour)
 	pair, err := svc.GenerateTokenPair("user-1", "staff")
 	if err != nil {
 		t.Fatalf("generate: %v", err)

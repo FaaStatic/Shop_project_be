@@ -2,9 +2,6 @@ package responsedto
 
 import "github.com/google/uuid"
 
-// AddTransactionResponse is returned after a sale is recorded. DebtInfo is
-// present only when the sale is hutang (debt) — a cash/transfer/qris sale
-// leaves it nil since no debt was touched.
 type AddTransactionResponse struct {
 	TransactionID    uuid.UUID            `json:"transaction_id"`
 	NoInvoice        string               `json:"no_invoice"`
@@ -13,9 +10,6 @@ type AddTransactionResponse struct {
 	DebtInfo         *DebtTransactionInfo `json:"debt_info,omitempty"`
 }
 
-// DebtTransactionInfo is the debt side-effect of a single hutang sale: how
-// much the customer owed before this sale, how much this sale added, and
-// what they owe now — the numbers a receipt needs.
 type DebtTransactionInfo struct {
 	DebtID                string `json:"debt_id"`
 	PreviousRemainingDebt int64  `json:"previous_remaining_debt"`

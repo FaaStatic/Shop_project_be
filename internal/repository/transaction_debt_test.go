@@ -15,13 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTestDB connects to a real, migrated Postgres for repository-level tests
-// that need genuine row locking / transactional guarantees (debt & stock
-// atomicity). Skipped unless TEST_DATABASE_DSN is set, matching the existing
-// convention in reservestock_concurrency_test.go, e.g.:
-//
-//	TEST_DATABASE_DSN='host=localhost user=user_test password=... dbname=db_toko port=5432 sslmode=disable' \
-//	  go test ./internal/repository -run TestCreateTransaction -v
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_DSN")
@@ -35,8 +28,6 @@ func openTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// seedUserProductCustomer creates the minimal rows a transaction needs (cashier,
-// one physical product, one customer), cleaned up after the test.
 func seedUserProductCustomer(t *testing.T, db *gorm.DB, stock float64) (*domain.Users, *domain.Products, *domain.Customers) {
 	t.Helper()
 
@@ -63,10 +54,6 @@ func seedUserProductCustomer(t *testing.T, db *gorm.DB, stock float64) (*domain.
 	}
 
 	t.Cleanup(func() {
-		// Children before parents: transactions_detail -> transactions -> debts
-		// -> products/customers -> users, respecting FK constraints. Rows may
-		// already be soft-deleted (DeleteTransaction), so Unscoped is required
-		// throughout to actually remove them.
 		var trxIDs []uuid.UUID
 		db.Unscoped().Model(&domain.Transactions{}).Where("user_id = ?", user.ID).Pluck("id", &trxIDs)
 		if len(trxIDs) > 0 {
@@ -101,16 +88,12 @@ func newTrx(user *domain.Users, product *domain.Products, customer *domain.Custo
 	}
 }
 
-// TestCreateTransaction_HutangIncreasesDebt proves a debt (hutang) sale both
-// creates the customer's debt row on the first purchase and increments both
-// TotalDebt and RemainingDebt (by the same amount) on a second purchase,
-// while stock is decremented in the same DB transaction.
 func TestCreateTransaction_HutangIncreasesDebt(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewTransactionRepository(db)
 	user, product, customer := seedUserProductCustomer(t, db, 10)
 
-	first := newTrx(user, product, customer, enum.MoneyPayment(1) /* hutang */, 2, 11000)
+	first := newTrx(user, product, customer, enum.MoneyPayment(1), 2, 11000)
 	firstSnap, err := repo.CreateTransaction(context.Background(), first, true, true)
 	if err != nil {
 		t.Fatalf("first hutang transaction failed: %v", err)
@@ -118,8 +101,6 @@ func TestCreateTransaction_HutangIncreasesDebt(t *testing.T) {
 	if first.DebtID == nil {
 		t.Fatal("expected the transaction to be linked to a newly created debt")
 	}
-	// The response snapshot is what the receipt is built from: it must show
-	// "no prior debt" (previous remaining 0) for a brand new debt.
 	if firstSnap == nil {
 		t.Fatal("expected a non-nil TransactionDebtSnapshot for a hutang sale")
 	}
@@ -149,8 +130,6 @@ func TestCreateTransaction_HutangIncreasesDebt(t *testing.T) {
 	if second.DebtID == nil || *second.DebtID != *first.DebtID {
 		t.Fatal("expected the second hutang sale to reuse the same customer's debt row")
 	}
-	// The second sale's snapshot must show the balance as it stood right
-	// before this sale (22000), not zero and not the final total.
 	if secondSnap == nil {
 		t.Fatal("expected a non-nil TransactionDebtSnapshot for the second hutang sale")
 	}
@@ -172,19 +151,17 @@ func TestCreateTransaction_HutangIncreasesDebt(t *testing.T) {
 	if err := db.First(&reloadedProduct, "id = ?", product.ID).Error; err != nil {
 		t.Fatalf("reload product: %v", err)
 	}
-	if reloadedProduct.Stock != 7 { // 10 - 2 - 1
+	if reloadedProduct.Stock != 7 {
 		t.Errorf("stock = %v, want 7 (must be decremented on a hutang sale too)", reloadedProduct.Stock)
 	}
 }
 
-// TestCreateTransaction_CashDoesNotCreateDebt proves a cash (tunai) sale never
-// touches the debt table, only stock.
 func TestCreateTransaction_CashDoesNotCreateDebt(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewTransactionRepository(db)
 	user, product, customer := seedUserProductCustomer(t, db, 5)
 
-	trx := newTrx(user, product, customer, enum.MoneyPayment(0) /* tunai */, 1, 10000)
+	trx := newTrx(user, product, customer, enum.MoneyPayment(0), 1, 10000)
 	snap, err := repo.CreateTransaction(context.Background(), trx, false, true)
 	if err != nil {
 		t.Fatalf("cash transaction failed: %v", err)
@@ -211,16 +188,12 @@ func TestCreateTransaction_CashDoesNotCreateDebt(t *testing.T) {
 	}
 }
 
-// TestDeleteTransaction_ReversesDebtAndRestoresStock proves canceling/deleting
-// a hutang transaction restores the sold stock and reduces the customer's
-// debt by exactly that transaction's value, flipping status to LUNAS once
-// RemainingDebt reaches zero (clamped, never negative).
 func TestDeleteTransaction_ReversesDebtAndRestoresStock(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewTransactionRepository(db)
 	user, product, customer := seedUserProductCustomer(t, db, 10)
 
-	trx := newTrx(user, product, customer, enum.MoneyPayment(1), 2, 11000) // debt = 22000
+	trx := newTrx(user, product, customer, enum.MoneyPayment(1), 2, 11000)
 	if _, err := repo.CreateTransaction(context.Background(), trx, true, true); err != nil {
 		t.Fatalf("create hutang transaction failed: %v", err)
 	}
@@ -255,16 +228,13 @@ func TestDeleteTransaction_ReversesDebtAndRestoresStock(t *testing.T) {
 	}
 }
 
-// TestDeleteTransaction_PartialReversalKeepsRemainderOwed proves that deleting
-// one of two hutang transactions only reverses that transaction's share of the
-// debt, leaving the other transaction's amount still owed.
 func TestDeleteTransaction_PartialReversalKeepsRemainderOwed(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewTransactionRepository(db)
 	user, product, customer := seedUserProductCustomer(t, db, 10)
 
-	first := newTrx(user, product, customer, enum.MoneyPayment(1), 1, 11000)  // 11000
-	second := newTrx(user, product, customer, enum.MoneyPayment(1), 1, 11000) // +11000 = 22000
+	first := newTrx(user, product, customer, enum.MoneyPayment(1), 1, 11000)
+	second := newTrx(user, product, customer, enum.MoneyPayment(1), 1, 11000)
 	if _, err := repo.CreateTransaction(context.Background(), first, true, true); err != nil {
 		t.Fatalf("create first: %v", err)
 	}

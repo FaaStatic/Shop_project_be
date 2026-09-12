@@ -12,8 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// fakeProductRepo embeds domain.ProductRepository so only the methods used by
-// buildOrder (GetProduct) need to be implemented for these tests.
 type fakeProductRepo struct {
 	domain.ProductRepository
 	product *domain.Products

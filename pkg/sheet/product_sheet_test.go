@@ -1,6 +1,7 @@
 package sheet
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -19,20 +20,16 @@ SKU-5,Gula 1kg,,10000,12000,12500,,sembako`
 		t.Fatalf("unexpected fatal error: %v", err)
 	}
 
-	// Valid: SKU-1, SKU-2, SKU-5 -> 3 rows.
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 valid rows, got %d (%+v)", len(rows), rows)
 	}
-	// Error: row without SKU + row with invalid price -> 2 errors.
 	if len(rowErrors) != 2 {
 		t.Fatalf("expected 2 row errors, got %d (%+v)", len(rowErrors), rowErrors)
 	}
 
-	// Check the column mapping is correct.
 	if rows[0].SKU != "SKU-1" || rows[0].ProductName != "Beras 5kg" || rows[0].SellingPrice != 65000 {
 		t.Fatalf("unexpected first row: %+v", rows[0])
 	}
-	// Empty stock -> 0.
 	if rows[2].SKU != "SKU-5" || rows[2].Stock != 0 {
 		t.Fatalf("unexpected last row: %+v", rows[2])
 	}
@@ -62,6 +59,17 @@ func TestParseProductsMissingHeader(t *testing.T) {
 	_, _, err := ParseProducts(strings.NewReader(csvData), "p.csv")
 	if err == nil {
 		t.Fatal("expected error for missing required header, got nil")
+	}
+}
+
+func TestParseProductsRejectsTooManyRows(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("sku,product_name,purchase_price,selling_price,selling_price_debt\n")
+	for i := 0; i <= maxImportRows; i++ {
+		fmt.Fprintf(&b, "SKU-%d,P,1,2,3\n", i)
+	}
+	if _, _, err := ParseProducts(strings.NewReader(b.String()), "p.csv"); err == nil {
+		t.Fatalf("expected an error for more than %d data rows", maxImportRows)
 	}
 }
 

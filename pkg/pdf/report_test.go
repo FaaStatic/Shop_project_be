@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-// TestMain points the PDF output during tests to a separate folder at the project root
-// (storage/reports_test) so it doesn't mix with the real output (storage/reports).
 func TestMain(m *testing.M) {
-	// Test working directory = package folder (pkg/pdf), so root = ../../.
 	reportDir = "../../storage/reports_test"
 	os.Exit(m.Run())
 }
@@ -95,6 +92,24 @@ func TestGenerateDebtReport(t *testing.T) {
 		t.Fatalf("GenerateDebtReport error: %v", err)
 	}
 	assertFileExists(t, url)
+}
+
+func TestReportPath(t *testing.T) {
+	url, err := GenerateTransactionReport(TransactionReportData{NoInvoice: "INV-9/../x", GeneratedAt: time.Now()})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if !strings.HasPrefix(url, urlPrefix+"/struk-INV-9----x-") {
+		t.Fatalf("unexpected url %s", url)
+	}
+	if _, ok := ReportPath(filepath.Base(url)); !ok {
+		t.Fatalf("generated report %s is not resolvable", url)
+	}
+	for _, bad := range []string{"", "../report.pdf", "a/b.pdf", `a\b.pdf`, ".hidden.pdf", "missing.pdf", "report.txt"} {
+		if _, ok := ReportPath(bad); ok {
+			t.Errorf("ReportPath(%q) accepted", bad)
+		}
+	}
 }
 
 func assertFileExists(t *testing.T, url string) {

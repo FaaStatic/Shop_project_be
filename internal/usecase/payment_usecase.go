@@ -46,108 +46,131 @@ func NewPaymentUsecase(
 	}
 }
 
-// ChargeQris creates a QRIS payment then returns the QR to display in
-// Flutter. The final status arrives later via webhook (see HandleNotification).
+type chargeFunc func(ctx context.Context, in domain.GatewayChargeInput) (*domain.GatewayChargeResult, error)
+
 func (u *paymentUsecase) ChargeQris(ctx context.Context, request *requestdto.ChargeQrisRequest) (*responsedto.ChargePaymentResponse, error) {
-	userID, err := uuid.Parse(request.UserId)
-	if err != nil {
-		u.log.Error("failed to parse user id", zap.Error(err))
-		return nil, domain.InvalidID("invalid user id format")
-	}
-	customerID, err := parseOptionalUUID(request.CustomerId)
-	if err != nil {
-		u.log.Error("failed to parse customer id", zap.Error(err))
-		return nil, domain.InvalidID("invalid customer id format")
-	}
-
-	gross, items, err := u.buildOrder(ctx, toItemPairs(request.Items))
-	if err != nil {
-		return nil, err
-	}
-	gross = applyFee("qris", gross)
-
-	orderID, err := u.resolveOrderID(ctx, request.NoInvoice)
-	if err != nil {
-		return nil, err
-	}
-
-	// Reserve stock BEFORE charging: once the QR is issued the goods are already
-	// allocated — two buyers cannot both pay for the last unit.
-	if err := u.productRepo.ReserveStock(ctx, items); err != nil {
-		u.log.Warn("failed to reserve stock", zap.Error(err), zap.String("order_id", orderID))
-		return nil, fmt.Errorf("insufficient stock")
-	}
-
-	result, err := u.gateway.ChargeQris(ctx, domain.GatewayChargeInput{
-		OrderID:     orderID,
-		GrossAmount: gross,
-	})
-	if err != nil {
-		u.releaseStock(ctx, items, orderID) // charge failed to create: return the reservation
-		u.log.Error("failed to charge qris", zap.Error(err))
-		return nil, fmt.Errorf("failed to create qris payment")
-	}
-
-	payment := u.newPayment(orderID, "qris", userID, customerID, gross, items, result)
-	payment.StockReserved = true
-	return u.persistChargeResult(ctx, payment, result)
+	return u.charge(ctx, "qris", "", request.UserId, request.CustomerId, request.NoInvoice, request.Items, u.gateway.ChargeQris)
 }
 
-// ChargeVA creates a Virtual Account payment (BCA bank_transfer or Mandiri
-// echannel). The buyer pays the displayed VA number / bill; the final status
-// arrives via webhook (see HandleNotification).
 func (u *paymentUsecase) ChargeVA(ctx context.Context, request *requestdto.ChargeVARequest) (*responsedto.ChargePaymentResponse, error) {
-	userID, err := uuid.Parse(request.UserId)
+	return u.charge(ctx, "va", request.Bank, request.UserId, request.CustomerId, request.NoInvoice, request.Items, u.gateway.ChargeVA)
+}
+
+func (u *paymentUsecase) charge(ctx context.Context, method, bank, rawUserID string, rawCustomerID *string, noInvoice string, reqItems []requestdto.PaymentItemRequest, gatewayCharge chargeFunc) (*responsedto.ChargePaymentResponse, error) {
+	userID, err := uuid.Parse(rawUserID)
 	if err != nil {
 		u.log.Error("failed to parse user id", zap.Error(err))
 		return nil, domain.InvalidID("invalid user id format")
 	}
-	customerID, err := parseOptionalUUID(request.CustomerId)
+	customerID, err := parseOptionalUUID(rawCustomerID)
 	if err != nil {
 		u.log.Error("failed to parse customer id", zap.Error(err))
 		return nil, domain.InvalidID("invalid customer id format")
 	}
 
-	gross, items, err := u.buildOrder(ctx, toItemPairs(request.Items))
+	subtotal, items, err := u.buildOrder(ctx, toItemPairs(reqItems))
 	if err != nil {
 		return nil, err
 	}
-	gross = applyFee("va", gross)
+	gross := applyFee(method, subtotal)
 
-	orderID, err := u.resolveOrderID(ctx, request.NoInvoice)
+	orderID, err := u.resolveOrderID(ctx, noInvoice)
 	if err != nil {
 		return nil, err
 	}
 
-	// Reserve stock BEFORE charging (see ChargeQris).
-	if err := u.productRepo.ReserveStock(ctx, items); err != nil {
-		u.log.Warn("failed to reserve stock", zap.Error(err), zap.String("order_id", orderID))
-		return nil, fmt.Errorf("insufficient stock")
+	payment := &domain.Payment{
+		OrderID:        orderID,
+		UserID:         userID,
+		CustomerID:     customerID,
+		Method:         method,
+		SubtotalAmount: subtotal,
+		FeeAmount:      gross - subtotal,
+		GrossAmount:    gross,
+		Status:         domain.PaymentPending,
+		VABank:         bank,
+		Items:          items,
+		StockReserved:  true,
+	}
+	if err := u.paymentRepo.CreateWithReservation(ctx, payment); err != nil {
+		u.log.Warn("failed to create reserved payment", zap.Error(err), zap.String("order_id", orderID))
+		return nil, reserveStockError(err)
 	}
 
-	result, err := u.gateway.ChargeVA(ctx, domain.GatewayChargeInput{
-		OrderID:     orderID,
-		GrossAmount: gross,
-		Bank:        request.Bank,
-	})
+	result, err := gatewayCharge(ctx, domain.GatewayChargeInput{OrderID: orderID, GrossAmount: gross, Bank: bank})
 	if err != nil {
-		u.releaseStock(ctx, items, orderID)
-		u.log.Error("failed to charge va", zap.Error(err))
-		return nil, fmt.Errorf("failed to create va payment")
+		u.log.Error("failed to create gateway charge", zap.Error(err), zap.String("method", method), zap.String("order_id", orderID))
+		u.failPayment(ctx, orderID)
+		return nil, fmt.Errorf("failed to create %s payment: %w", method, domain.ErrInternal)
 	}
 
-	payment := u.newPayment(orderID, "va", userID, customerID, gross, items, result)
-	payment.StockReserved = true
-	return u.persistChargeResult(ctx, payment, result)
+	applyChargeResult(payment, result)
+	if err := u.paymentRepo.UpdateWithLock(ctx, orderID, func(p *domain.Payment) (bool, error) {
+		applyChargeResult(p, result)
+		return true, nil
+	}); err != nil {
+		u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: charge created but its details were not saved",
+			zap.Error(err), zap.String("order_id", orderID))
+	}
+
+	status := string(payment.Status)
+	if mapInternalStatus(result.TransactionStatus, result.FraudStatus) == domain.PaymentSuccess {
+		if err := u.applyAuthoritativeStatus(ctx, orderID, result.TransactionStatus, result.FraudStatus, result.TransactionID); err != nil {
+			u.log.Error("charge settled synchronously but could not be finalized",
+				zap.Error(err), zap.String("order_id", orderID))
+		}
+		if refreshed, rerr := u.paymentRepo.GetByOrderID(ctx, orderID); rerr == nil && refreshed != nil {
+			status = string(refreshed.Status)
+		}
+	}
+
+	return &responsedto.ChargePaymentResponse{
+		OrderID:        orderID,
+		Method:         method,
+		Status:         status,
+		GrossAmount:    gross,
+		MidtransStatus: result.TransactionStatus,
+		QrString:       payment.QRString,
+		QrUrl:          payment.QRURL,
+		RedirectUrl:    payment.RedirectURL,
+		VaNumber:       payment.VANumber,
+		Bank:           payment.VABank,
+		BillKey:        payment.BillKey,
+		BillerCode:     payment.BillerCode,
+		ExpiryTime:     result.ExpiryTime,
+	}, nil
 }
 
-// HandleNotification processes the Midtrans webhook: verify signature, fetch
-// the authoritative status, update the payment, and on success create the transaction
-// (carrying no_invoice into the transactions table). Idempotent against repeated
-// notifications sent by Midtrans.
+func applyChargeResult(p *domain.Payment, r *domain.GatewayChargeResult) {
+	p.MidtransTrxID = r.TransactionID
+	p.QRString = r.QRString
+	p.QRURL = r.QRURL
+	p.RedirectURL = r.RedirectURL
+	p.VANumber = r.VANumber
+	p.BillKey = r.BillKey
+	p.BillerCode = r.BillerCode
+	p.ExpiryTime = parseMidtransTime(r.ExpiryTime)
+	if r.Bank != "" {
+		p.VABank = r.Bank
+	}
+	if p.MidtransStatus == "" {
+		p.MidtransStatus, p.FraudStatus = r.TransactionStatus, r.FraudStatus
+	}
+}
+
+func (u *paymentUsecase) failPayment(ctx context.Context, orderID string) {
+	err := u.paymentRepo.UpdateWithLock(ctx, orderID, func(p *domain.Payment) (bool, error) {
+		p.Status = domain.PaymentFailed
+		p.StockReserved = false
+		return true, nil
+	})
+	if err != nil {
+		u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: failed to release the stock of an uncharged payment",
+			zap.Error(err), zap.String("order_id", orderID))
+	}
+}
+
 func (u *paymentUsecase) HandleNotification(ctx context.Context, notif *requestdto.MidtransNotificationRequest) error {
-	// Log EVERY incoming notification (proof Midtrans called) — before
-	// verification, so even attempts with a wrong signature remain visible.
 	u.log.Info("midtrans notification received",
 		zap.String("order_id", notif.OrderID),
 		zap.String("transaction_status", notif.TransactionStatus),
@@ -166,18 +189,13 @@ func (u *paymentUsecase) HandleNotification(ctx context.Context, notif *requestd
 		return fmt.Errorf("failed to get payment: %w", domain.ErrInternal)
 	}
 	if payment == nil {
-		// Unknown order: still reply success (200) so Midtrans stops retrying.
 		u.log.Warn("notification for unknown order", zap.String("order_id", notif.OrderID))
 		return nil
 	}
-	if isFinalPaymentStatus(payment.Status) {
-		// Already final (success/failed/expired): Midtrans replays are ignored so
-		// data is not rewritten and the push notification is not sent twice.
+	if isTerminalPaymentStatus(payment.Status) {
 		return nil
 	}
 
-	// Fetch the authoritative status; the notification payload can be replayed. Done
-	// outside the lock — do not hold the row lock during an outgoing HTTP call.
 	trxStatus, fraudStatus, midtransTrxID := notif.TransactionStatus, notif.FraudStatus, notif.TransactionID
 	if authoritative, cerr := u.gateway.CheckStatus(ctx, notif.OrderID); cerr == nil {
 		trxStatus, fraudStatus, midtransTrxID = authoritative.TransactionStatus, authoritative.FraudStatus, authoritative.TransactionID
@@ -185,19 +203,23 @@ func (u *paymentUsecase) HandleNotification(ctx context.Context, notif *requestd
 		u.log.Warn("failed to verify status to midtrans, fallback to payload", zap.Error(cerr))
 	}
 
-	return u.applyAuthoritativeStatus(ctx, notif.OrderID, trxStatus, fraudStatus, midtransTrxID)
+	if err := u.applyAuthoritativeStatus(ctx, notif.OrderID, trxStatus, fraudStatus, midtransTrxID); err != nil {
+		if domain.IsTransient(err) {
+			return err
+		}
+		u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: permanent failure finalizing settled payment",
+			zap.Error(err), zap.String("order_id", notif.OrderID))
+		return nil
+	}
+	return nil
 }
 
-// applyAuthoritativeStatus applies the Midtrans status to the payment under a row
-// lock (two concurrent processors are serialized; the loser sees the final status
-// and stops), releases the stock reservation if the payment lapses, then sends
-// the push notification. Used by the webhook and the reconciliation job.
 func (u *paymentUsecase) applyAuthoritativeStatus(ctx context.Context, orderID, trxStatus, fraudStatus, midtransTrxID string) error {
 	var final *domain.Payment
-	var releaseItems []domain.PaymentItem // reservation returned after commit
+	var claimed bool
 	err := u.paymentRepo.UpdateWithLock(ctx, orderID, func(p *domain.Payment) (bool, error) {
-		if isFinalPaymentStatus(p.Status) {
-			return false, nil // already finalized by another processor
+		if isTerminalPaymentStatus(p.Status) {
+			return false, nil
 		}
 		p.MidtransStatus = trxStatus
 		p.FraudStatus = fraudStatus
@@ -207,26 +229,19 @@ func (u *paymentUsecase) applyAuthoritativeStatus(ctx context.Context, orderID, 
 
 		switch mapInternalStatus(trxStatus, fraudStatus) {
 		case domain.PaymentSuccess:
-			if err := u.finalizeSuccess(ctx, p); err != nil {
-				// Money already settled but the transaction failed to create — needs
-				// manual follow-up (refund via the Midtrans dashboard /
-				// stock correction). This marker is what alerting watches.
-				u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: settled payment cannot be finalized",
-					zap.Error(err), zap.String("order_id", p.OrderID))
-				return false, fmt.Errorf("failed to finalize successful payment: %w", err)
-			}
+			p.Status = domain.PaymentSettling
+			claimed = true
 		case domain.PaymentFailed:
 			p.Status = domain.PaymentFailed
 		case domain.PaymentExpired:
 			p.Status = domain.PaymentExpired
 		default:
-			p.Status = domain.PaymentPending
+			if p.Status != domain.PaymentSettling {
+				p.Status = domain.PaymentPending
+			}
 		}
 
-		// Payment lapsed: the flag is cleared with the commit (so replays don't
-		// double-restore); stock is returned after commit, outside the lock.
-		if p.StockReserved && (p.Status == domain.PaymentFailed || p.Status == domain.PaymentExpired) {
-			releaseItems = p.Items
+		if p.Status == domain.PaymentFailed || p.Status == domain.PaymentExpired {
 			p.StockReserved = false
 		}
 		final = p
@@ -237,20 +252,7 @@ func (u *paymentUsecase) applyAuthoritativeStatus(ctx context.Context, orderID, 
 		return fmt.Errorf("failed to update payment: %w", domain.ErrInternal)
 	}
 	if final == nil {
-		return nil // handled by another flow; no one to notify
-	}
-
-	if len(releaseItems) > 0 {
-		u.releaseStock(ctx, releaseItems, final.OrderID)
-	}
-
-	// Push notification only on transition to a final status; pending does not
-	// need notifying. Sent AFTER commit so it does not precede the data.
-	switch final.Status {
-	case domain.PaymentSuccess:
-		u.notifyPaymentResult(ctx, final, true)
-	case domain.PaymentFailed, domain.PaymentExpired:
-		u.notifyPaymentResult(ctx, final, false)
+		return nil
 	}
 
 	u.log.Info("payment status processed",
@@ -258,14 +260,143 @@ func (u *paymentUsecase) applyAuthoritativeStatus(ctx context.Context, orderID, 
 		zap.String("midtrans_status", final.MidtransStatus),
 		zap.String("internal_status", string(final.Status)),
 	)
+
+	if claimed {
+		return u.finalizeSettlement(ctx, final.OrderID)
+	}
+
+	switch final.Status {
+	case domain.PaymentFailed, domain.PaymentExpired:
+		u.notifyPaymentResult(ctx, final, false)
+	}
 	return nil
 }
 
-// ReconcileStalePayments sweeps pending payments past their validity period
-// (webhook never arrived or kept failing): ask Midtrans for the authoritative
-// status then apply it — expired ones get their stock reservation released, settled
-// ones are finalized. Called periodically from the scheduler in cmd.
+func (u *paymentUsecase) finalizeSettlement(ctx context.Context, orderID string) error {
+	payment, err := u.paymentRepo.GetByOrderID(ctx, orderID)
+	if err != nil {
+		u.log.Error("failed to reload payment for finalization", zap.Error(err), zap.String("order_id", orderID))
+		return fmt.Errorf("failed to reload payment: %w", domain.ErrInternal)
+	}
+	if payment == nil {
+		return domain.NotFound(fmt.Sprintf("payment %s not found", orderID))
+	}
+	if payment.Status == domain.PaymentSuccess && payment.TransactionID != nil {
+		return nil
+	}
+
+	trxID, err := u.ensureTransaction(ctx, payment)
+	if err != nil {
+		u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: settled payment has no sales transaction",
+			zap.Error(err),
+			zap.String("order_id", orderID),
+			zap.Bool("transient", domain.IsTransient(err)),
+		)
+		u.touch(ctx, orderID)
+		return err
+	}
+
+	var notified *domain.Payment
+	err = u.paymentRepo.UpdateWithLock(ctx, orderID, func(p *domain.Payment) (bool, error) {
+		if p.Status == domain.PaymentSuccess && p.TransactionID != nil {
+			return false, nil
+		}
+		p.TransactionID = &trxID
+		p.StockReserved = false
+		if p.PaidAt == nil {
+			now := time.Now()
+			p.PaidAt = &now
+		}
+		p.Status = domain.PaymentSuccess
+		notified = p
+		return true, nil
+	})
+	if err != nil {
+		u.log.Error("failed to mark payment successful", zap.Error(err), zap.String("order_id", orderID))
+		return fmt.Errorf("failed to mark payment successful: %w", domain.ErrInternal)
+	}
+	if notified != nil {
+		u.notifyPaymentResult(ctx, notified, true)
+	}
+	return nil
+}
+
+func (u *paymentUsecase) ensureTransaction(ctx context.Context, payment *domain.Payment) (uuid.UUID, error) {
+	if existing, err := u.trxRepo.CheckTransactionByNoInvoice(ctx, payment.OrderID); err != nil {
+		return uuid.Nil, fmt.Errorf("failed to check transaction: %w", domain.ErrInternal)
+	} else if existing != nil {
+		return existing.ID, nil
+	}
+
+	details := make([]requestdto.AddTransactionDetailRequest, 0, len(payment.Items))
+	for _, it := range payment.Items {
+		detail := requestdto.AddTransactionDetailRequest{
+			ProductId: it.ProductID.String(),
+			Qty:       it.Qty,
+		}
+		if it.UnitPrice > 0 {
+			price := it.UnitPrice
+			detail.UnitPrice = &price
+		}
+		details = append(details, detail)
+	}
+
+	var customerID *string
+	if payment.CustomerID != nil {
+		s := payment.CustomerID.String()
+		customerID = &s
+	}
+	var bank *string
+	if payment.Method == "va" && payment.VABank != "" {
+		b := payment.VABank
+		bank = &b
+	}
+	addReq := &requestdto.AddTransactionRequest{
+		NoInvoice:   payment.OrderID,
+		TypePayment: methodToPaymentType(payment.Method),
+		Bank:        bank,
+		UserId:      payment.UserID.String(),
+		CustomerId:  customerID,
+		Details:     details,
+	}
+
+	addTrx := u.trxUsecase.AddTransaction
+	if payment.StockReserved {
+		addTrx = u.trxUsecase.AddPrepaidTransaction
+	}
+	resp, err := addTrx(ctx, addReq)
+	if err != nil {
+		if errors.Is(err, domain.ErrDuplicate) {
+			if existing, lookupErr := u.trxRepo.CheckTransactionByNoInvoice(ctx, payment.OrderID); lookupErr == nil && existing != nil {
+				return existing.ID, nil
+			}
+		}
+		return uuid.Nil, fmt.Errorf("failed to create transaction from payment: %w", err)
+	}
+
+	if payment.SubtotalAmount > 0 && resp.TotalTransaction != payment.SubtotalAmount {
+		u.log.Error("PAYMENT_AMOUNT_MISMATCH: transaction total differs from charged subtotal",
+			zap.String("order_id", payment.OrderID),
+			zap.Int64("charged_subtotal", payment.SubtotalAmount),
+			zap.Int64("transaction_total", resp.TotalTransaction),
+			zap.Int64("gross_amount", payment.GrossAmount),
+		)
+	}
+	return resp.TransactionID, nil
+}
+
 func (u *paymentUsecase) ReconcileStalePayments(ctx context.Context) error {
+	settling, err := u.paymentRepo.ListPendingFinalization(ctx, 50)
+	if err != nil {
+		return fmt.Errorf("failed to list payments pending finalization: %w", err)
+	}
+	for _, p := range settling {
+		if err := u.finalizeSettlement(ctx, p.OrderID); err != nil {
+			u.log.Error("reconcile: failed to finalize settled payment",
+				zap.Error(err), zap.String("order_id", p.OrderID))
+		}
+	}
+
 	stale, err := u.paymentRepo.ListStalePending(ctx, 50)
 	if err != nil {
 		return fmt.Errorf("failed to list stale payments: %w", err)
@@ -273,21 +404,25 @@ func (u *paymentUsecase) ReconcileStalePayments(ctx context.Context) error {
 	for _, p := range stale {
 		authoritative, err := u.gateway.CheckStatus(ctx, p.OrderID)
 		if err != nil {
-			// Without an authoritative status don't guess — leave it for the next
-			// sweep rather than wrongly releasing stock for a paid payment.
 			u.log.Warn("reconcile: failed to check status", zap.Error(err), zap.String("order_id", p.OrderID))
+			u.touch(ctx, p.OrderID)
 			continue
 		}
 		if err := u.applyAuthoritativeStatus(ctx, p.OrderID, authoritative.TransactionStatus, authoritative.FraudStatus, authoritative.TransactionID); err != nil {
 			u.log.Error("reconcile: failed to apply status", zap.Error(err), zap.String("order_id", p.OrderID))
+			u.touch(ctx, p.OrderID)
 		}
 	}
 	return nil
 }
 
-// isFinalPaymentStatus marks statuses that must not be reprocessed by
-// notification replays — preventing double updates and duplicate push notifications.
-func isFinalPaymentStatus(s domain.PaymentStatus) bool {
+func (u *paymentUsecase) touch(ctx context.Context, orderID string) {
+	if err := u.paymentRepo.Touch(ctx, orderID); err != nil {
+		u.log.Warn("failed to touch payment", zap.Error(err), zap.String("order_id", orderID))
+	}
+}
+
+func isTerminalPaymentStatus(s domain.PaymentStatus) bool {
 	switch s {
 	case domain.PaymentSuccess, domain.PaymentFailed, domain.PaymentExpired:
 		return true
@@ -295,14 +430,17 @@ func isFinalPaymentStatus(s domain.PaymentStatus) bool {
 	return false
 }
 
-// GetStatus returns the current payment status from the DB (the source of truth
-// already updated by the webhook). Used by Flutter for polling. Besides
-// admin/superadmin, only the order creator may view its status; every
-// access is recorded as an audit log (to detect snooping between staff).
+func reserveStockError(err error) error {
+	if domain.IsTransient(err) {
+		return fmt.Errorf("failed to reserve stock: %w", domain.ErrInternal)
+	}
+	return err
+}
+
 func (u *paymentUsecase) GetStatus(ctx context.Context, orderID, requesterID, requesterRole string) (*responsedto.PaymentStatusResponse, error) {
 	orderID = strings.TrimSpace(orderID)
 	if orderID == "" {
-		return nil, fmt.Errorf("order_id is required")
+		return nil, domain.Validation("order_id is required")
 	}
 	payment, err := u.paymentRepo.GetByOrderID(ctx, orderID)
 	if err != nil {
@@ -342,119 +480,6 @@ func (u *paymentUsecase) GetStatus(ctx context.Context, orderID, requesterID, re
 	return res, nil
 }
 
-// persistChargeResult saves the charged payment and, if the gateway already
-// succeeded immediately (synchronous settlement), finalizes its transaction right away.
-func (u *paymentUsecase) persistChargeResult(ctx context.Context, payment *domain.Payment, result *domain.GatewayChargeResult) (*responsedto.ChargePaymentResponse, error) {
-	if err := u.paymentRepo.Create(ctx, payment); err != nil {
-		if payment.StockReserved {
-			u.releaseStock(ctx, payment.Items, payment.OrderID)
-		}
-		if errors.Is(err, domain.ErrDuplicateInvoice) {
-			return nil, err
-		}
-		u.log.Error("failed to save payment", zap.Error(err))
-		return nil, fmt.Errorf("failed to save payment: %w", domain.ErrInternal)
-	}
-
-	if mapInternalStatus(result.TransactionStatus, result.FraudStatus) == domain.PaymentSuccess {
-		if err := u.finalizeSuccess(ctx, payment); err != nil {
-			u.log.Error("failed to finalize successful payment", zap.Error(err))
-			return nil, fmt.Errorf("failed to finalize payment: %w", domain.ErrInternal)
-		}
-		if err := u.paymentRepo.Update(ctx, payment); err != nil {
-			u.log.Error("failed to update payment", zap.Error(err))
-			return nil, fmt.Errorf("failed to update payment: %w", domain.ErrInternal)
-		}
-		// Some gateway charges settle synchronously without a webhook follow-up; notify the user right away.
-		u.notifyPaymentResult(ctx, payment, true)
-	}
-
-	return &responsedto.ChargePaymentResponse{
-		OrderID:        payment.OrderID,
-		Method:         payment.Method,
-		Status:         string(payment.Status),
-		GrossAmount:    payment.GrossAmount,
-		MidtransStatus: payment.MidtransStatus,
-		QrString:       payment.QRString,
-		QrUrl:          payment.QRURL,
-		RedirectUrl:    payment.RedirectURL,
-		VaNumber:       payment.VANumber,
-		Bank:           payment.VABank,
-		BillKey:        payment.BillKey,
-		BillerCode:     payment.BillerCode,
-		ExpiryTime:     result.ExpiryTime,
-	}, nil
-}
-
-// finalizeSuccess creates the transaction (once, idempotent) from the cart
-// stored in the payment then marks the payment successful. The transaction no_invoice =
-// the payment's order_id.
-func (u *paymentUsecase) finalizeSuccess(ctx context.Context, payment *domain.Payment) error {
-	if payment.TransactionID != nil {
-		payment.StockReserved = false // reservation already consumed by the transaction
-		payment.Status = domain.PaymentSuccess
-		return nil
-	}
-
-	existing, err := u.trxRepo.CheckTransactionByNoInvoice(ctx, payment.OrderID)
-	if err != nil {
-		return fmt.Errorf("failed to check transaction: %w", err)
-	}
-	if existing == nil {
-		details := make([]requestdto.AddTransactionDetailRequest, 0, len(payment.Items))
-		for _, it := range payment.Items {
-			details = append(details, requestdto.AddTransactionDetailRequest{
-				ProductId: it.ProductID.String(),
-				Qty:       it.Qty,
-			})
-		}
-		var customerID *string
-		if payment.CustomerID != nil {
-			s := payment.CustomerID.String()
-			customerID = &s
-		}
-		var bank *string
-		if payment.Method == "va" && payment.VABank != "" {
-			b := payment.VABank
-			bank = &b
-		}
-		addReq := &requestdto.AddTransactionRequest{
-			NoInvoice:   payment.OrderID,
-			TypePayment: methodToPaymentType(payment.Method),
-			Bank:        bank,
-			UserId:      payment.UserID.String(),
-			CustomerId:  customerID,
-			Details:     details,
-		}
-		// A reserved payment's stock was already deducted at charge time — use
-		// the prepaid path so it is not deducted twice.
-		addTrx := u.trxUsecase.AddTransaction
-		if payment.StockReserved {
-			addTrx = u.trxUsecase.AddPrepaidTransaction
-		}
-		if _, err := addTrx(ctx, addReq); err != nil {
-			return fmt.Errorf("failed to create transaction from payment: %w", err)
-		}
-		existing, err = u.trxRepo.CheckTransactionByNoInvoice(ctx, payment.OrderID)
-		if err != nil {
-			return fmt.Errorf("failed to reload transaction: %w", err)
-		}
-	}
-
-	if existing != nil {
-		payment.TransactionID = &existing.ID
-	}
-	payment.StockReserved = false // reservation consumed by the transaction
-	now := time.Now()
-	payment.PaidAt = &now
-	payment.Status = domain.PaymentSuccess
-	return nil
-}
-
-// notifyPaymentResult sends the payment-result push notification asynchronously
-// so it does not delay or fail the caller's flow — the webhook must still
-// reply 200 even if FCM has issues, so errors are only logged. The request context
-// dies once the response is sent, so it is detached with WithoutCancel.
 func (u *paymentUsecase) notifyPaymentResult(ctx context.Context, payment *domain.Payment, success bool) {
 	userID, orderID := payment.UserID.String(), payment.OrderID
 	amount := payment.GrossAmount
@@ -468,13 +493,11 @@ func (u *paymentUsecase) notifyPaymentResult(ctx context.Context, payment *domai
 	}()
 }
 
-// buildOrder validates each product and computes gross_amount on the server
-// (price × qty), not trusting the value from the client.
 func (u *paymentUsecase) buildOrder(ctx context.Context, items []itemPair) (int64, []domain.PaymentItem, error) {
 	if len(items) == 0 {
-		return 0, nil, fmt.Errorf("items is required")
+		return 0, nil, domain.Validation("items is required")
 	}
-	var gross int64
+	var subtotal int64
 	paymentItems := make([]domain.PaymentItem, 0, len(items))
 	for _, it := range items {
 		productID, err := uuid.Parse(it.productID)
@@ -492,29 +515,23 @@ func (u *paymentUsecase) buildOrder(ctx context.Context, items []itemPair) (int6
 		if product == nil {
 			return 0, nil, domain.NotFound(fmt.Sprintf("product %s not found", it.productID))
 		}
-		// Digital products need a per-line destination (see addTransaction), which
-		// the online cart/PaymentItem does not carry. Selling them online would
-		// capture money then fail finalization forever, so reject up front and keep
-		// digital sales on the manual POS /transactions path.
 		if product.ProductType.IsDigital() {
-			return 0, nil, fmt.Errorf("digital products cannot be purchased via online payment")
+			return 0, nil, domain.Validation("digital products cannot be purchased via online payment")
 		}
-		// Early check so the user is rejected before the order is created; the
-		// atomic check stays in ReserveStock (stock can change in between).
 		if product.Stock < it.qty {
-			return 0, nil, fmt.Errorf("insufficient stock for product %s", it.productID)
+			return 0, nil, domain.Conflict(fmt.Sprintf("insufficient stock for product %s", it.productID))
 		}
-		gross += int64(math.Round(float64(product.SellingPrice) * it.qty))
-		paymentItems = append(paymentItems, domain.PaymentItem{ProductID: productID, Qty: it.qty})
+		subtotal += int64(math.Round(float64(product.SellingPrice) * it.qty))
+		paymentItems = append(paymentItems, domain.PaymentItem{
+			ProductID: productID,
+			Qty:       it.qty,
+			UnitPrice: product.SellingPrice,
+		})
 	}
-	return gross, paymentItems, nil
+	return subtotal, paymentItems, nil
 }
 
-// resolveOrderID uses the no_invoice from the client if present (and unused),
-// otherwise generates a new one. The order ID must be unique in Midtrans.
 func (u *paymentUsecase) resolveOrderID(ctx context.Context, requested string) (string, error) {
-	// Force the INV- prefix so the payment order_id always matches the transaction
-	// no_invoice created at finalization (addTransaction applies ensureInvoicePrefix too).
 	orderID := ensureInvoicePrefix(requested)
 	existing, err := u.paymentRepo.GetByOrderID(ctx, orderID)
 	if err != nil {
@@ -526,40 +543,6 @@ func (u *paymentUsecase) resolveOrderID(ctx context.Context, requested string) (
 	}
 	return orderID, nil
 }
-
-func (u *paymentUsecase) newPayment(orderID, method string, userID uuid.UUID, customerID *uuid.UUID, gross int64, items []domain.PaymentItem, result *domain.GatewayChargeResult) *domain.Payment {
-	return &domain.Payment{
-		OrderID:        orderID,
-		UserID:         userID,
-		CustomerID:     customerID,
-		Method:         method,
-		GrossAmount:    gross,
-		Status:         domain.PaymentPending,
-		MidtransTrxID:  result.TransactionID,
-		MidtransStatus: result.TransactionStatus,
-		FraudStatus:    result.FraudStatus,
-		QRString:       result.QRString,
-		QRURL:          result.QRURL,
-		RedirectURL:    result.RedirectURL,
-		VABank:         result.Bank,
-		VANumber:       result.VANumber,
-		BillKey:        result.BillKey,
-		BillerCode:     result.BillerCode,
-		Items:          items,
-		ExpiryTime:     parseMidtransTime(result.ExpiryTime),
-	}
-}
-
-// releaseStock returns the reserved stock. A failure here cannot
-// be retried automatically — it is flagged in the log for manual correction.
-func (u *paymentUsecase) releaseStock(ctx context.Context, items []domain.PaymentItem, orderID string) {
-	if err := u.productRepo.RestoreStock(ctx, items); err != nil {
-		u.log.Error("PAYMENT_RECONCILIATION_REQUIRED: failed to restore reserved stock",
-			zap.Error(err), zap.String("order_id", orderID))
-	}
-}
-
-// --- helpers ---
 
 type itemPair struct {
 	productID string
@@ -585,21 +568,11 @@ func parseOptionalUUID(s *string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
-// Midtrans standard per-transaction fees, passed on to the buyer so the
-// merchant nets the exact subtotal. Midtrans fees are exclusive of 11% VAT,
-// so the values below already include it (QRIS MDR 0.7% + VAT; VA Rp4.000 +
-// VAT = Rp4.440). Amounts are rounded UP so the merchant never absorbs a
-// fraction.
-// Source: Midtrans pricing page (updated 2025-11-11).
 const (
-	feeQrisRate = 0.00777 // 0.7% MDR + 11% VAT
-	feeVAFlat   = 4440    // Rp4.000 + 11% VAT
+	feeQrisRate = 0.007
+	feeVAFlat   = 4440
 )
 
-// applyFee returns gross = subtotal + channel fee for online charges.
-// Midtrans computes the QRIS MDR on the full gross amount (fee-on-fee), so
-// the fee must be solved as gross = subtotal / (1 - rate) to fully pass the
-// cost to the buyer.
 func applyFee(method string, subtotal int64) int64 {
 	switch method {
 	case "qris":
@@ -611,8 +584,6 @@ func applyFee(method string, subtotal int64) int64 {
 	}
 }
 
-// methodToPaymentType maps the online payment method to the internal POS
-// payment enum string. VA settles as a bank transfer; QRIS stays qris.
 func methodToPaymentType(method string) string {
 	if method == "va" {
 		return "transfer"
@@ -620,7 +591,6 @@ func methodToPaymentType(method string) string {
 	return "qris"
 }
 
-// mapInternalStatus maps the raw Midtrans status to the internal status.
 func mapInternalStatus(trxStatus, fraudStatus string) domain.PaymentStatus {
 	switch strings.ToLower(trxStatus) {
 	case "capture":
@@ -645,28 +615,14 @@ func mapInternalStatus(trxStatus, fraudStatus string) domain.PaymentStatus {
 }
 
 func generateInvoice() string {
-	// 16 hex chars (64 bits) from the UUID keep collisions negligible while
-	// staying short enough for receipts; the payments.order_id unique index is
-	// the final safety net.
 	return invoicePrefix + strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:16])
 }
 
-// jakartaLoc is used to parse Midtrans times sent in WIB without an offset.
-var jakartaLoc = func() *time.Location {
-	loc, err := time.LoadLocation("Asia/Jakarta")
-	if err != nil {
-		return time.FixedZone("WIB", 7*3600)
-	}
-	return loc
-}()
-
-// parseMidtransTime parses "2006-01-02 15:04:05" (WIB); nil if empty
-// or the format is unrecognized.
 func parseMidtransTime(s string) *time.Time {
 	if s == "" {
 		return nil
 	}
-	t, err := time.ParseInLocation("2006-01-02 15:04:05", s, jakartaLoc)
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", s, domain.StoreLocation)
 	if err != nil {
 		return nil
 	}

@@ -1,5 +1,3 @@
-// Package route registers all of the application's HTTP endpoints. The New function
-// returns the registrar called by InitFiber before the not-found handler.
 package route
 
 import (
@@ -11,7 +9,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Handlers groups all handlers together for easy injection.
 type Handlers struct {
 	User        *handler.UserHandler
 	Product     *handler.ProductHandler
@@ -22,32 +19,25 @@ type Handlers struct {
 	Fcm         *handler.FcmHandler
 }
 
-// New builds the route registrar. The /auth endpoints are public; the rest
-// are under the /api group protected by JWT. midtransConfigured gates the
-// online-payment routes: when false (keys absent from config), those routes
-// stay registered but respond 503 instead of running against a
-// half-configured gateway — missing optional config must not crash the app.
 func New(h Handlers, jwtMw *middleware.JWTMiddleware, storage fiber.Storage, log *zap.Logger, midtransConfigured bool) func(router fiber.Router) {
 	return func(router fiber.Router) {
-		// Public. Register only creates staff accounts; admin/superadmin
-		// are inserted directly via the DB.
 		auth := router.Group("/auth")
 		auth.Post("/login", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Login)
-		auth.Post("/register", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Register)
-		auth.Post("/refresh", limiter.New(middleware.GetLoginLimiter(storage)), h.User.Refresh)
+		auth.Post("/refresh", limiter.New(middleware.GetRefreshLimiter(storage)), h.User.Refresh)
 
 		requireMidtrans := middleware.RequireFeature(midtransConfigured, "online payment")
 
-		// The Midtrans webhook is PUBLIC (no JWT). Its authenticity is validated
-		// via signature_key in the usecase. Register this URL in the Midtrans dashboard.
 		router.Post("/payments/notification", requireMidtrans, limiter.New(middleware.GetWebhookLimiter(storage)), h.Payment.Notification)
 
-		// Terproteksi JWT
-		api := router.Group("/api", jwtMw.Auth(log))
+		api := router.Group("/api", jwtMw.Auth(log), limiter.New(middleware.GetUserLimiter(storage)))
 
-		// onlySuper restricts sensitive endpoints (delete, product update,
-		// monthly & debt reports) only for superadmin.
+		api.Post("/auth/logout", h.User.Logout)
+
 		onlySuper := jwtMw.RequireRole("superadmin")
+
+		api.Post("/auth/register", onlySuper, h.User.Register)
+
+		api.Get("/reports/:file", handler.DownloadReport)
 
 		products := api.Group("/products")
 		products.Post("", h.Product.Add)

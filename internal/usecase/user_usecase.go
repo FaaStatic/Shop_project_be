@@ -16,10 +16,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// dummyPasswordHash is used by UserLogin to equalize compute time when the
-// username does not exist: bcrypt is still run so a user's existence does not
-// leak via timing differences. Generated once when the package loads.
 var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("timing-equalizer-not-a-real-password"), bcrypt.DefaultCost)
+
+var errBadCredentials = errors.New("username atau password salah")
+
+var errInvalidRefreshToken = errors.New("invalid refresh token")
 
 type userUsecase struct {
 	userRepo    domain.UserRepository
@@ -37,26 +38,16 @@ func NewUserUsecase(userRepo domain.UserRepository, sessionRepo domain.SessionRe
 	}
 }
 
-// RegisterUser implements [domain.UserUsecase].
 func (u *userUsecase) RegisterUser(ctx context.Context, userDto *requestdto.UserRegisterRequest) (*responsedto.UserRegisterResponse, error) {
 	existing, err := u.userRepo.GetUserByUsername(ctx, userDto.Username)
 	if err != nil {
 		u.log.Error("error get user by username", zap.Error(err))
-		return &responsedto.UserRegisterResponse{
-			Message: "internal server error",
-			Status:  500,
-		}, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to check username: %w", domain.ErrInternal)
 	}
 	if existing != nil {
-		u.log.Error("user already exists")
-
-		return &responsedto.UserRegisterResponse{
-			Message: "user already exists",
-			Status:  409,
-		}, fmt.Errorf("user already exists")
+		return nil, domain.Duplicate("user already exists")
 	}
 
-	// Public register is staff-only; admin/superadmin are created directly via the DB.
 	roleEnum, _ := enum.ParseUserRole("staff")
 
 	user := &domain.Users{
@@ -64,167 +55,140 @@ func (u *userUsecase) RegisterUser(ctx context.Context, userDto *requestdto.User
 		Password: userDto.Password,
 		Role:     roleEnum,
 	}
-	err = user.HashPswd()
-	if err != nil {
+	if err := user.HashPswd(); err != nil {
 		u.log.Error("Error Hashing Password", zap.Error(err))
-		return &responsedto.UserRegisterResponse{
-			Message: "internal server error",
-			Status:  500,
-		}, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to hash password: %w", domain.ErrInternal)
 	}
-	err = u.userRepo.RegisterUser(ctx, user)
-	if err != nil {
-		return &responsedto.UserRegisterResponse{
-			Message: "register Failed",
-			Status:  500,
-		}, err
+	if err := u.userRepo.RegisterUser(ctx, user); err != nil {
+		u.log.Error("failed to register user", zap.Error(err))
+		if errors.Is(err, domain.ErrDuplicate) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to register user: %w", domain.ErrInternal)
 	}
 
 	return &responsedto.UserRegisterResponse{
 		Message: "register success",
 		Status:  201,
 	}, nil
-
 }
 
-// UserLogin implements [domain.UserUsecase].
 func (u *userUsecase) UserLogin(ctx context.Context, userDto *requestdto.UserLoginRequest) (*responsedto.UserLoginResponse, error) {
 	user, err := u.userRepo.GetUserByUsername(ctx, userDto.Username)
 	if err != nil {
 		u.log.Error("error get user by username", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to get user: %w", domain.ErrInternal)
 	}
 	if user == nil {
-		// Run a dummy bcrypt so the duration matches the "user exists" path -> username
-		// existence does not leak via timing. The message is unified with the
-		// wrong-password case -> no enumeration via message content.
-		bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(userDto.Password))
-		u.log.Error("user not found")
-		return nil, fmt.Errorf("username atau password salah")
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(userDto.Password))
+		u.log.Warn("login rejected: user not found")
+		return nil, errBadCredentials
 	}
 	if !user.ComparedPwd(userDto.Password) {
-		u.log.Error("wrong password")
-		return nil, fmt.Errorf("username atau password salah")
+		u.log.Warn("login rejected: wrong password")
+		return nil, errBadCredentials
 	}
-	roleUser, err := enum.ParseUserRole(user.Role.String())
+	return u.issueSession(ctx, user)
+}
+
+func (u *userUsecase) issueSession(ctx context.Context, user *domain.Users) (*responsedto.UserLoginResponse, error) {
+	role, err := enum.ParseUserRole(user.Role.String())
 	if err != nil {
 		u.log.Error("error parsing role", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("invalid user role: %w", domain.ErrInternal)
 	}
-	tokenPair, err := u.jwtService.GenerateTokenPair(user.ID.String(), roleUser.String())
+	pair, err := u.jwtService.GenerateTokenPair(user.ID.String(), role.String())
 	if err != nil {
 		u.log.Error("error gen token", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to generate token: %w", domain.ErrInternal)
 	}
 
-	sessionKey := "session:" + tokenPair.AccessToken
+	accessTTL := time.Duration(pair.ExpiresIn) * time.Second
+	accessHash := jwt.HashToken(pair.AccessToken)
+	refreshHash := jwt.HashToken(pair.RefreshToken)
 	session := &domain.Session{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
+		AccessToken:  accessHash,
+		RefreshToken: refreshHash,
 		UserID:       user.ID.String(),
-		Role:         roleUser.String(),
-		ExpiresAt:    time.Now().Add(time.Duration(tokenPair.ExpiresIn) * time.Second),
+		Role:         role.String(),
+		ExpiresAt:    time.Now().Add(accessTTL),
 	}
-
-	if err := u.sessionRepo.CreateSession(ctx, session, sessionKey, time.Duration(tokenPair.ExpiresIn)*time.Second); err != nil {
+	if err := u.sessionRepo.CreateSession(ctx, session, "session:"+accessHash, accessTTL); err != nil {
 		u.log.Error("error save session", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to save session: %w", domain.ErrInternal)
 	}
-	if err := u.sessionRepo.CreateSession(ctx, session, "refresh:"+tokenPair.RefreshToken, u.jwtService.RefreshTokenTTL()); err != nil {
+	if err := u.sessionRepo.CreateSession(ctx, session, "refresh:"+refreshHash, u.jwtService.RefreshTokenTTL()); err != nil {
 		u.log.Error("error save refresh session", zap.Error(err))
-		_ = u.sessionRepo.DeleteSessionByAccessToken(ctx, sessionKey)
-		return nil, fmt.Errorf("internal server error")
+		_ = u.sessionRepo.DeleteSession(ctx, "session:"+accessHash)
+		return nil, fmt.Errorf("failed to save session: %w", domain.ErrInternal)
 	}
 
 	return &responsedto.UserLoginResponse{
 		ID:           user.ID,
 		Username:     user.Username,
-		Role:         roleUser.String(),
-		Token:        tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresIn:    int64(tokenPair.ExpiresIn),
+		Role:         role.String(),
+		Token:        pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresIn:    int64(pair.ExpiresIn),
 	}, nil
-
 }
 
-// RefreshToken implements [domain.UserUsecase]. It validates the refresh token
-// (JWT type "refresh" + an active Redis session), rotates the pair, and returns a
-// fresh access/refresh token without re-authentication.
+func (u *userUsecase) Logout(ctx context.Context, accessToken string, logoutDto *requestdto.UserLogoutRequest) error {
+	var failed bool
+
+	if accessToken != "" {
+		if err := u.sessionRepo.DeleteSession(ctx, "session:"+jwt.HashToken(accessToken)); err != nil {
+			u.log.Error("failed to delete access session", zap.Error(err))
+			failed = true
+		}
+	}
+
+	if logoutDto != nil && logoutDto.RefreshToken != "" {
+		if err := u.sessionRepo.DeleteSession(ctx, "refresh:"+jwt.HashToken(logoutDto.RefreshToken)); err != nil {
+			u.log.Error("failed to delete refresh session", zap.Error(err))
+			failed = true
+		}
+	}
+
+	if failed {
+		return fmt.Errorf("failed to revoke session: %w", domain.ErrInternal)
+	}
+	return nil
+}
+
 func (u *userUsecase) RefreshToken(ctx context.Context, refreshDto *requestdto.UserRefreshTokenRequest) (*responsedto.UserLoginResponse, error) {
 	claims, err := u.jwtService.ValidateToken(refreshDto.RefreshToken)
 	if err != nil || claims.Type != "refresh" {
-		return nil, fmt.Errorf("invalid refresh token")
+		return nil, errInvalidRefreshToken
 	}
 
-	refreshKey := "refresh:" + refreshDto.RefreshToken
-	// Pop atomically (GETDEL) so two concurrent refreshes with the same token
-	// cannot both succeed — only one caller receives the session.
-	session, err := u.sessionRepo.PopSessionByRefreshToken(ctx, refreshKey)
+	session, err := u.sessionRepo.PopSessionByRefreshToken(ctx, "refresh:"+jwt.HashToken(refreshDto.RefreshToken))
 	if err != nil {
 		u.log.Error("error pop refresh session", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to read refresh session: %w", domain.ErrInternal)
 	}
 	if session == nil {
-		return nil, fmt.Errorf("invalid refresh token")
+		return nil, errInvalidRefreshToken
 	}
 
 	userID, err := uuid.Parse(session.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token")
+		return nil, errInvalidRefreshToken
 	}
 	user, err := u.userRepo.GetUserById(ctx, userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return nil, fmt.Errorf("invalid refresh token")
+			return nil, errInvalidRefreshToken
 		}
 		u.log.Error("error get user", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	if user == nil {
-		return nil, fmt.Errorf("invalid refresh token")
-	}
-	roleUser, err := enum.ParseUserRole(user.Role.String())
-	if err != nil {
-		u.log.Error("error parsing role", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
+		return nil, fmt.Errorf("failed to get user: %w", domain.ErrInternal)
 	}
 
-	tokenPair, err := u.jwtService.GenerateTokenPair(user.ID.String(), roleUser.String())
-	if err != nil {
-		u.log.Error("error gen token", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
-	}
-
-	// The refresh session was already popped above; drop the old access session.
 	if session.AccessToken != "" {
-		if err := u.sessionRepo.DeleteSessionByAccessToken(ctx, "session:"+session.AccessToken); err != nil {
+		if err := u.sessionRepo.DeleteSession(ctx, "session:"+session.AccessToken); err != nil {
 			u.log.Error("error delete old session", zap.Error(err))
 		}
 	}
 
-	newSession := &domain.Session{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
-		UserID:       user.ID.String(),
-		Role:         roleUser.String(),
-		ExpiresAt:    time.Now().Add(time.Duration(tokenPair.ExpiresIn) * time.Second),
-	}
-	if err := u.sessionRepo.CreateSession(ctx, newSession, "session:"+tokenPair.AccessToken, time.Duration(tokenPair.ExpiresIn)*time.Second); err != nil {
-		u.log.Error("error save session", zap.Error(err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	if err := u.sessionRepo.CreateSession(ctx, newSession, "refresh:"+tokenPair.RefreshToken, u.jwtService.RefreshTokenTTL()); err != nil {
-		u.log.Error("error save refresh session", zap.Error(err))
-		_ = u.sessionRepo.DeleteSessionByAccessToken(ctx, "session:"+tokenPair.AccessToken)
-		return nil, fmt.Errorf("internal server error")
-	}
-
-	return &responsedto.UserLoginResponse{
-		ID:           user.ID,
-		Username:     user.Username,
-		Role:         roleUser.String(),
-		Token:        tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresIn:    int64(tokenPair.ExpiresIn),
-	}, nil
+	return u.issueSession(ctx, user)
 }

@@ -74,6 +74,9 @@ func (h *TransactionHandler) List(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
 	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	result, err := h.trxUsecase.GetAllTransaction(c.Context(), &req)
 	if err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
@@ -88,18 +91,13 @@ func (h *TransactionHandler) List(c fiber.Ctx) error {
 //	@Tags			Transactions
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			id			path		string	true	"Transaction ID"
-//	@Param			customer_id	query		string	false	"Filter customer ID"
-//	@Success		200			{object}	response.APIResponse
-//	@Failure		400			{object}	response.APIResponse
-//	@Failure		404			{object}	response.APIResponse
+//	@Param			id	path		string	true	"Transaction ID"
+//	@Success		200	{object}	response.APIResponse
+//	@Failure		400	{object}	response.APIResponse
+//	@Failure		404	{object}	response.APIResponse
 //	@Router			/api/transactions/{id} [get]
 func (h *TransactionHandler) Get(c fiber.Ctx) error {
-	req := requestdto.GetTransactionRequest{
-		ID:         c.Params("id"),
-		UserId:     middleware.GetUserID(c),
-		CustomerId: c.Query("customer_id"),
-	}
+	req := requestdto.GetTransactionRequest{ID: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
@@ -181,7 +179,6 @@ func (h *TransactionHandler) ReportTransaction(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}

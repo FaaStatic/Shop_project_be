@@ -1,6 +1,8 @@
 package jwt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -16,7 +18,6 @@ type JWTService struct {
 
 type Claims struct {
 	UserID string `json:"user_id"`
-	Email  string `json:"email"`
 	Role   string `json:"role"`
 	Type   string `json:"type"`
 	jwt.RegisteredClaims
@@ -28,11 +29,11 @@ type TokenPair struct {
 	ExpiresIn    int
 }
 
-func NewJWTService(secret string, accessMin, refreshHour int) *JWTService {
+func NewJWTService(secret string, accessTTL, refreshTTL time.Duration) *JWTService {
 	return &JWTService{
 		secret:          []byte(secret),
-		accessTokenTTL:  time.Duration(accessMin) * time.Minute,
-		refreshTokenTTL: time.Duration(refreshHour) * time.Hour,
+		accessTokenTTL:  accessTTL,
+		refreshTokenTTL: refreshTTL,
 	}
 }
 
@@ -91,8 +92,11 @@ func (j *JWTService) ValidateToken(tokenStr string) (*Claims, error) {
 	return claims, nil
 }
 
-// RefreshTokenTTL returns the refresh-token lifetime, used to set the TTL of the
-// refresh-token session in Redis (which must outlive the access token).
 func (j *JWTService) RefreshTokenTTL() time.Duration {
 	return j.refreshTokenTTL
+}
+
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

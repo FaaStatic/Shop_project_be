@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"github.com/go-pdf/fpdf"
 )
 
-// newDocument creates an A4 PDF document with standard margins.
 func newDocument() *fpdf.Fpdf {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(15, 15, 15)
@@ -20,26 +20,50 @@ func newDocument() *fpdf.Fpdf {
 	return pdf
 }
 
-// saveDocument writes the document to the storage folder and returns its relative URL.
-func saveDocument(pdf *fpdf.Fpdf, filename string) (string, error) {
+const reportTTL = time.Hour
+
+func saveDocument(pdf *fpdf.Fpdf, prefix string) (string, error) {
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create report folder: %w", err)
 	}
-	fullPath := filepath.Join(reportDir, filename)
-	if err := pdf.OutputFileAndClose(fullPath); err != nil {
+	filename := prefix + "-" + strings.ToLower(rand.Text()) + ".pdf"
+	if err := pdf.OutputFileAndClose(filepath.Join(reportDir, filename)); err != nil {
 		return "", fmt.Errorf("failed to save pdf file: %w", err)
 	}
+	purgeExpiredReports()
 	return urlPrefix + "/" + filename, nil
 }
 
-// drawLine menggambar garis horizontal selebar area konten.
+func purgeExpiredReports() {
+	entries, err := os.ReadDir(reportDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-reportTTL)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(reportDir, e.Name()))
+		}
+	}
+}
+
+func ReportPath(name string) (string, bool) {
+	if name == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".pdf") {
+		return "", false
+	}
+	path := filepath.Join(reportDir, name)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return path, true
+}
+
 func drawLine(pdf *fpdf.Fpdf) {
 	x := pdf.GetX()
 	y := pdf.GetY()
 	pdf.Line(x, y, 195, y)
 }
 
-// drawDailyHeader draws the header row of the daily breakdown table.
 func drawDailyHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -50,8 +74,7 @@ func drawDailyHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(45, 8, "Total", "1", 1, "R", true, 0, "")
 }
 
-// formatRupiah formats a number into a Rupiah currency string, e.g. "Rp 1.250.000".
-func formatRupiah(v int64) string {
+func FormatRupiah(v int64) string {
 	n := v
 	negative := n < 0
 	if negative {
@@ -73,7 +96,6 @@ func formatRupiah(v int64) string {
 	return result
 }
 
-// formatQty formats qty: no decimals if whole, otherwise up to 2 decimals.
 func formatQty(v float64) string {
 	if v == math.Trunc(v) {
 		return strconv.FormatInt(int64(v), 10)
@@ -81,7 +103,6 @@ func formatQty(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
 }
 
-// formatDateTime formats time to the Indonesian format "02 Jan 2006 15:04".
 func formatDateTime(t time.Time) string {
 	if t.IsZero() {
 		t = time.Now()
@@ -90,7 +111,6 @@ func formatDateTime(t time.Time) string {
 		t.Day(), monthNameShortID(int(t.Month())), t.Year(), t.Hour(), t.Minute())
 }
 
-// drawProductHeader draws the header row of the products-sold table.
 func drawProductHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -99,7 +119,6 @@ func drawProductHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(45, 8, "Total", "1", 1, "R", true, 0, "")
 }
 
-// drawDebtPaymentHeader draws the header row of the debt payment history table.
 func drawDebtPaymentHeader(pdf *fpdf.Fpdf) {
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(230, 230, 230)
@@ -108,15 +127,10 @@ func drawDebtPaymentHeader(pdf *fpdf.Fpdf) {
 	pdf.CellFormat(50, 8, "Nominal", "1", 1, "R", true, 0, "")
 }
 
-// formatDateOnly formats a date to "02 Jan 2006".
 func formatDateOnly(t time.Time) string {
 	return fmt.Sprintf("%02d %s %d", t.Day(), monthNameShortID(int(t.Month())), t.Year())
 }
 
-// truncate cuts a string longer than max runes and appends an ellipsis. It
-// counts and slices by rune (not byte) so multi-byte UTF-8 names are never split
-// mid-character, which would emit invalid text into the PDF. For ASCII input the
-// result is identical to a byte-based cut.
 func truncate(s string, max int) string {
 	if max <= 0 {
 		return ""
@@ -131,10 +145,13 @@ func truncate(s string, max int) string {
 	return string(r[:max-3]) + "..."
 }
 
-// sanitizeFilename replaces characters that are unsafe for a file name.
 func sanitizeFilename(s string) string {
-	replacer := strings.NewReplacer("/", "-", "\\", "-", " ", "_", ":", "-")
-	cleaned := replacer.Replace(strings.TrimSpace(s))
+	cleaned := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, strings.TrimSpace(s))
 	if cleaned == "" {
 		return "transaksi"
 	}
@@ -151,7 +168,6 @@ var monthNamesShortID = [...]string{
 	"Jul", "Agu", "Sep", "Okt", "Nov", "Des",
 }
 
-// monthNameID returns the Indonesian month name (1-12); otherwise an empty string.
 func monthNameID(month int) string {
 	if month < 1 || month > 12 {
 		return ""
@@ -166,7 +182,6 @@ func monthNameShortID(month int) string {
 	return monthNamesShortID[month-1]
 }
 
-// titleCase capitalizes the first letter, e.g. "tunai" -> "Tunai".
 func titleCase(s string) string {
 	if s == "" {
 		return ""

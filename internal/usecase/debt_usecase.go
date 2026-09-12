@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
@@ -17,7 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// dateLayout is the date format used for debt input/output.
 const dateLayout = "2006-01-02"
 
 type debtUsecase struct {
@@ -32,7 +30,6 @@ func NewDebtUsecase(debtRepo domain.DebtRepository, log *zap.Logger) domain.Debt
 	}
 }
 
-// toDebtResponse maps a Debts entity to the response DTO.
 func toDebtResponse(debt *domain.Debts) responsedto.DebtResponseDto {
 	var dateDebt *string
 	if !debt.DueDate.IsZero() {
@@ -59,7 +56,6 @@ func toDebtResponse(debt *domain.Debts) responsedto.DebtResponseDto {
 	}
 }
 
-// AddingDebtCustomer implements [domain.DebtUseCase].
 func (d *debtUsecase) AddingDebtCustomer(ctx context.Context, request *requestdto.AddDebtRequest) error {
 	customerId, err := uuid.Parse(request.CustomerID)
 	if err != nil {
@@ -70,7 +66,7 @@ func (d *debtUsecase) AddingDebtCustomer(ctx context.Context, request *requestdt
 	dueDate, err := time.Parse(dateLayout, request.JatuhTempo)
 	if err != nil {
 		d.log.Error("failed to parse jatuh_tempo", zap.Error(err))
-		return fmt.Errorf("invalid jatuh_tempo format (expected YYYY-MM-DD)")
+		return domain.Validation("invalid jatuh_tempo format (expected YYYY-MM-DD)")
 	}
 
 	debt := &domain.Debts{
@@ -82,12 +78,14 @@ func (d *debtUsecase) AddingDebtCustomer(ctx context.Context, request *requestdt
 	}
 	if err := d.debtRepo.AddDebt(ctx, debt); err != nil {
 		d.log.Error("failed to add debt", zap.Error(err))
-		return fmt.Errorf("failed to add debt: %w", domain.ErrInternal)
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to add debt: %w", domain.ErrInternal)
+		}
+		return err
 	}
 	return nil
 }
 
-// DeleteDebtCustomer implements [domain.DebtUseCase].
 func (d *debtUsecase) DeleteDebtCustomer(ctx context.Context, request *requestdto.DeleteDebtRequest) error {
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
@@ -96,17 +94,24 @@ func (d *debtUsecase) DeleteDebtCustomer(ctx context.Context, request *requestdt
 	}
 	if err := d.debtRepo.DeleteDebt(ctx, id); err != nil {
 		d.log.Error("failed to delete debt", zap.Error(err))
-		if errors.Is(err, domain.ErrNotFound) {
-			return err
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to delete debt: %w", domain.ErrInternal)
 		}
-		return fmt.Errorf("failed to delete debt: %w", domain.ErrInternal)
+		return err
 	}
 	return nil
 }
 
-// GetAllDebtCustomerList implements [domain.DebtUseCase].
 func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *requestdto.FilterDebtRequest) (*responsedto.DebtListResponseDto, error) {
-	filter := domain.FilterDebt{Limit: request.Limit, Order: request.Order}
+	filter := domain.FilterDebt{
+		Limit:  request.Limit,
+		Order:  request.Order,
+		Search: strings.TrimSpace(request.Search),
+	}
+	if request.Status != nil {
+		status := enum.DebtStatus(*request.Status)
+		filter.Status = &status
+	}
 	if request.CustomerId != "" {
 		customerId, err := uuid.Parse(request.CustomerId)
 		if err != nil {
@@ -116,29 +121,11 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 		filter.CustomerID = customerId
 	}
 
-	// Cursor is optional. The first page has no after_id/after_time yet, so
-	// both must be set for the cursor to apply; otherwise leave it nil so the
-	// repo does not filter created_at with a zero-time (which empties the result).
-	var afterId, afterTimeRaw string
-	if request.AfterID != nil {
-		afterId = strings.TrimSpace(*request.AfterID)
+	cursor, err := parseCursor(request.AfterID, request.AfterTime)
+	if err != nil {
+		return nil, err
 	}
-	if request.AfterTime != nil {
-		afterTimeRaw = strings.TrimSpace(*request.AfterTime)
-	}
-	if afterId != "" && afterTimeRaw != "" {
-		afterTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
-		if err != nil {
-			d.log.Error("failed to parse after_time", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_time format")
-		}
-		afterUUID, err := uuid.Parse(afterId)
-		if err != nil {
-			d.log.Error("failed to parse after_id", zap.Error(err))
-			return nil, domain.InvalidID("invalid after_id format")
-		}
-		filter.Cursor = &paginated.CursorMeta{AfterTime: afterTime, AfterID: afterUUID}
-	}
+	filter.Cursor = cursor
 
 	result, err := d.debtRepo.GetAllDebt(ctx, filter)
 	if err != nil {
@@ -151,7 +138,6 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 		responses = append(responses, toDebtResponse(debt))
 	}
 
-	// Cursor is nil on the last page; Encode is nil-safe (no panic).
 	nextId, nextTime := result.Cursor.Encode()
 
 	return &responsedto.DebtListResponseDto{
@@ -162,7 +148,6 @@ func (d *debtUsecase) GetAllDebtCustomerList(ctx context.Context, request *reque
 	}, nil
 }
 
-// GetDebtCustomer implements [domain.DebtUseCase].
 func (d *debtUsecase) GetDebtCustomer(ctx context.Context, request *requestdto.GetDebtRequest) (*responsedto.DebtResponseDto, error) {
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
@@ -187,12 +172,6 @@ func (d *debtUsecase) GetDebtCustomer(ctx context.Context, request *requestdto.G
 	return &response, nil
 }
 
-// PayDebtCash implements [domain.DebtUseCase].
-// Records a cash payment the customer makes at the register toward an
-// existing debt. The cashier (Flutter app) enters how much cash was received
-// right now (request.NominalBayar) — it does not have to cover the full
-// remaining balance. A nominal greater than what is still owed is rejected
-// so the cashier can correct the amount before it's saved.
 func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtPayment) (*responsedto.DebtPaymentResponse, error) {
 	debtID, err := uuid.Parse(request.DebtID)
 	if err != nil {
@@ -205,18 +184,16 @@ func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtP
 		return nil, domain.InvalidID("invalid user id format")
 	}
 	if request.NominalBayar <= 0 {
-		return nil, fmt.Errorf("nominal_bayar must be greater than 0")
+		return nil, domain.Validation("nominal_bayar must be greater than 0")
 	}
 
-	payment := &domain.DebtPayments{UserID: userID, NominalBayar: request.NominalBayar}
+	payment := &domain.DebtPayments{UserID: userID, NominalBayar: request.NominalBayar, IdempotencyKey: request.IdempotencyKey}
 	result, err := d.debtRepo.PayDebt(ctx, debtID, payment)
 	if err != nil {
 		d.log.Error("failed to pay debt", zap.Error(err))
 		if errors.Is(err, domain.ErrInternal) {
 			return nil, fmt.Errorf("failed to record debt payment: %w", domain.ErrInternal)
 		}
-		// Business errors (not found, already paid off, overpayment) pass
-		// through unwrapped so the cashier sees why it was rejected.
 		return nil, err
 	}
 
@@ -232,13 +209,7 @@ func (d *debtUsecase) PayDebtCash(ctx context.Context, request *requestdto.DebtP
 	}, nil
 }
 
-// PrintReportDebtCustomer implements [domain.DebtUseCase].
-// Builds a PDF debt report for a customer (summary + payment history)
-// then returns the file URL the client can download.
 func (d *debtUsecase) PrintReportDebtCustomer(ctx context.Context, request *requestdto.PrintDebtReport) (*responsedto.PrintDebtCustomerResponse, error) {
-	if request.DebtId == "" {
-		return nil, fmt.Errorf("debt_id is required")
-	}
 	id, err := uuid.Parse(request.DebtId)
 	if err != nil {
 		d.log.Error("failed to parse debt id", zap.Error(err))

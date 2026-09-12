@@ -35,8 +35,6 @@ func (u ProductUnit) String() string {
 	}
 }
 
-// ParseProductUnit accepts a unit as a number (0-5) or text
-// ("pcs", "gram", "kg", "liter", "kardus", "ikat"). Empty defaults to "pcs".
 func ParseProductUnit(s string) (ProductUnit, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "pcs", "0":

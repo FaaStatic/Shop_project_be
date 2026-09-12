@@ -3,6 +3,7 @@ package envconfig
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -13,7 +14,6 @@ type Config struct {
 	DB          DBConfig
 	Redis       RedisConfig
 	JWT         JWTConfig
-	Encrypt     EncryptConfig
 	FirebaseStr FirebaseAppStr
 	Midtrans    MidtransConfig
 }
@@ -23,14 +23,10 @@ type FirebaseAppStr struct {
 }
 
 type AppConfig struct {
-	Name string
-	Port string
-	Env  string
-	Host string
-	// TrustedProxies is the list of trusted reverse-proxy IPs/CIDRs. If
-	// set (e.g. ["127.0.0.1"] when behind nginx), c.IP() reads
-	// X-Forwarded-For so the rate limiter sees the real user IP, not the
-	// proxy IP. Empty = no trusted proxy (default, anti header spoofing).
+	Name           string
+	Port           string
+	Env            string
+	Host           string
 	TrustedProxies []string
 }
 
@@ -43,11 +39,6 @@ type DBConfig struct {
 	SSLMode  string
 	TimeZone string
 
-	// Connection pool sizing. Optional — when unset (0) InitDB keeps the current
-	// defaults (MaxOpen 100, MaxIdle 10, lifetime 60m). These matter under
-	// prefork: each process owns its own pool, so N processes open up to
-	// N×MaxOpen connections. Lower MaxOpenConns to stay within the database's
-	// max_connections when running with prefork on multiple cores.
 	MaxOpenConns           int
 	MaxIdleConns           int
 	ConnMaxLifetimeMinutes int
@@ -63,69 +54,44 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
-	// AccessTokenTTL / RefreshTokenTTL are read from YAML in SECONDS.
-	// cmd/fiber_command.go converts them to minutes/hours before passing
-	// to jwt.NewJWTService (which expects minutes for access, hours for refresh).
+	Secret          string
 	AccessTokenTTL  int
 	RefreshTokenTTL int
 }
 
-type EncryptConfig struct {
-	Key string
-}
-
 type MidtransConfig struct {
 	ServerKey   string
-	ClientKey   string
-	Environment string // "sandbox" | "production"
+	Environment string
 }
 
-// Configured reports whether Midtrans credentials are present. Both keys are
-// optional at the config level so the app can boot without online payments;
-// callers must gate payment routes on this instead of failing startup.
 func (m MidtransConfig) Configured() bool {
-	return m.ServerKey != "" && m.ClientKey != ""
+	return m.ServerKey != ""
 }
 
-type configError struct {
-	field   string
-	message string
+var configFiles = map[string]string{
+	"development": ".config.development",
+	"staging":     ".config.staging",
+	"production":  ".config.production",
 }
 
-func (e *configError) Error() string {
-	return fmt.Sprintf("config error [%s]: %s", e.field, e.message)
-}
-
-func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic while loading config: %v", r)
-			log.Error("config loader panic", zap.Any("recover", r))
-		}
-	}()
-
+func InitEnvConfig(log *zap.Logger) (*Config, error) {
 	env := os.Getenv("APP_ENV")
-	switch env {
-	case "development":
-		viper.SetConfigName(".config.development")
-	case "production":
-		viper.SetConfigName(".config.production")
-	case "staging":
-		viper.SetConfigName(".config.staging")
-	default:
-		log.Fatal("APP_ENV must be 'development' or 'production'", zap.String("got", env))
+	name, ok := configFiles[env]
+	if !ok {
+		return nil, fmt.Errorf("APP_ENV must be development, staging or production, got %q", env)
 	}
 
+	viper.SetConfigName(name)
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	cfg = &Config{
+	cfg := &Config{
 		App: AppConfig{
 			Name:           viper.GetString("server.name"),
 			Port:           viper.GetString("server.port"),
@@ -134,14 +100,13 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 			TrustedProxies: viper.GetStringSlice("server.trusted_proxies"),
 		},
 		DB: DBConfig{
-			Host:     viper.GetString("database.host"),
-			Port:     viper.GetString("database.port"),
-			User:     viper.GetString("database.user"),
-			Password: viper.GetString("database.pass"),
-			DBName:   viper.GetString("database.dbname"),
-			SSLMode:  viper.GetString("database.sslmode"),
-			TimeZone: viper.GetString("database.time_zone"),
-			// Optional pool overrides; 0 (absent) keeps InitDB's defaults.
+			Host:                   viper.GetString("database.host"),
+			Port:                   viper.GetString("database.port"),
+			User:                   viper.GetString("database.user"),
+			Password:               viper.GetString("database.pass"),
+			DBName:                 viper.GetString("database.dbname"),
+			SSLMode:                viper.GetString("database.sslmode"),
+			TimeZone:               viper.GetString("database.time_zone"),
 			MaxOpenConns:           viper.GetInt("database.max_open_conns"),
 			MaxIdleConns:           viper.GetInt("database.max_idle_conns"),
 			ConnMaxLifetimeMinutes: viper.GetInt("database.conn_max_lifetime_minutes"),
@@ -159,12 +124,8 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 			AccessTokenTTL:  viper.GetInt("jwt.token_ttl"),
 			RefreshTokenTTL: viper.GetInt("jwt.refresh_token_ttl"),
 		},
-		Encrypt: EncryptConfig{
-			Key: viper.GetString("encrypt.key"),
-		},
 		Midtrans: MidtransConfig{
 			ServerKey:   viper.GetString("midtrans.server_key"),
-			ClientKey:   viper.GetString("midtrans.client_key"),
 			Environment: viper.GetString("midtrans.environment"),
 		},
 		FirebaseStr: FirebaseAppStr{
@@ -185,38 +146,30 @@ func InitEnvConfig(log *zap.Logger) (cfg *Config, err error) {
 }
 
 func (c *Config) validate() error {
-	type check struct {
+	required := []struct {
 		value string
 		field string
-	}
-
-	required := []check{
+	}{
 		{c.App.Port, "server.port"},
 		{c.App.Env, "server.env"},
 		{c.DB.Host, "database.host"},
 		{c.DB.Port, "database.port"},
 		{c.DB.User, "database.user"},
-		{c.DB.Password, "database.password"},
+		{c.DB.Password, "database.pass"},
 		{c.DB.DBName, "database.dbname"},
 		{c.JWT.Secret, "jwt.secret"},
-		{c.Encrypt.Key, "encrypt.key"},
 		{c.FirebaseStr.GOOGLE_APPLICATION_CREDENTIALS, "firebase.google_application_credentials"},
 	}
-
 	for _, r := range required {
 		if r.value == "" {
-			return &configError{
-				field:   r.field,
-				message: "required field must not be empty",
-			}
+			return fmt.Errorf("config error [%s]: required field must not be empty", r.field)
 		}
 	}
 	if c.JWT.AccessTokenTTL <= 0 {
-		return &configError{field: "jwt.token_ttl", message: "must be greater than 0"}
+		return fmt.Errorf("config error [jwt.token_ttl]: must be greater than 0")
 	}
 	if c.JWT.RefreshTokenTTL <= 0 {
-		return &configError{field: "jwt.refresh_token_ttl", message: "must be greater than 0"}
+		return fmt.Errorf("config error [jwt.refresh_token_ttl]: must be greater than 0")
 	}
-
 	return nil
 }

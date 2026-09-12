@@ -14,9 +14,6 @@ type Sender struct {
 	client *messaging.Client
 }
 
-// channelPayment is the Android notification channel ID used for payment
-// notifications. The client app MUST create this channel on Android 8+
-// (API 26+) at startup, otherwise the OS silently drops the notification.
 const channelPayment = "payment_notification"
 
 func NewSender(ctx context.Context, credentialsPath string) (*Sender, error) {

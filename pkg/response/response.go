@@ -26,9 +26,6 @@ func Error(c fiber.Ctx, statusCode int, message string, err error) error {
 		Message:      message,
 		ResponseCode: statusCode,
 	}
-	// Error detail only for 4xx (bad client input). 5xx errors come
-	// from internal sources (DB, external services) — their detail stays in the server log,
-	// jangan dibocorkan ke client.
 	if err != nil && statusCode < fiber.StatusInternalServerError {
 		resp.Error = err.Error()
 	}

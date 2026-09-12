@@ -20,7 +20,7 @@ type Transactions struct {
 	DebtID     *uuid.UUID `gorm:"column:debt_id;index" json:"debt_id"`
 
 	PaymentType      enum.MoneyPayment `gorm:"type:smallint;check:payment_type IN (0,1,2,3);not null" json:"payment_type"`
-	Bank             *string           `gorm:"type:varchar(20)" json:"bank,omitempty"` // "bca"|"mandiri", set only when PaymentType == transfer
+	Bank             *string           `gorm:"type:varchar(20)" json:"bank,omitempty"`
 	TotalTransaction int64             `gorm:"type:bigint;not null" json:"total_transaction"`
 	CreatedAt        time.Time         `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt        time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
@@ -41,7 +41,7 @@ type TransactionsDetail struct {
 	PurchasePrice int64     `gorm:"type:bigint;not null;default:0" json:"purchase_price"`
 	Qty           float64   `gorm:"type:decimal(8,2);not null" json:"qty"`
 	Subtotal      int64     `gorm:"type:bigint;not null" json:"subtotal"`
-	Destination   *string   `gorm:"type:varchar(50)" json:"destination,omitempty"` // phone/e-wallet account for digital products
+	Destination   *string   `gorm:"type:varchar(50)" json:"destination,omitempty"`
 
 	Product Products `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 }
@@ -53,6 +53,8 @@ func (t *Transactions) TableName() string {
 func (td *TransactionsDetail) TableName() string {
 	return "transactions_detail"
 }
+
+var StoreLocation = time.FixedZone("WIB", 7*60*60)
 
 type FilterTransaction struct {
 	NoInvoices string
@@ -70,15 +72,13 @@ type ResultTransaction struct {
 	Cursor   *paginated.CursorMeta
 }
 
-// MonthlyReport is the aggregation of transactions over one month.
 type MonthlyReport struct {
-	TotalTransaction int64 `gorm:"column:total_transaction"` // number of transactions
-	TotalRevenue     int64 `gorm:"column:total_revenue"`     // incoming revenue (excluding debt)
-	TotalDebt        int64 `gorm:"column:total_debt"`        // value of debt transactions
-	GrandTotal       int64 `gorm:"column:grand_total"`       // total of all transaction values
+	TotalTransaction int64 `gorm:"column:total_transaction"`
+	TotalRevenue     int64 `gorm:"column:total_revenue"`
+	TotalDebt        int64 `gorm:"column:total_debt"`
+	GrandTotal       int64 `gorm:"column:grand_total"`
 }
 
-// DailyReport is the aggregation of transactions on a single day of that month.
 type DailyReport struct {
 	Date             time.Time `gorm:"column:date"`
 	TotalTransaction int64     `gorm:"column:total_transaction"`
@@ -87,14 +87,12 @@ type DailyReport struct {
 	GrandTotal       int64     `gorm:"column:grand_total"`
 }
 
-// ProductSoldReport is the recap of a single product sold during a month.
 type ProductSoldReport struct {
 	ProductName string  `gorm:"column:product_name"`
 	Qty         float64 `gorm:"column:qty"`
 	Total       int64   `gorm:"column:total"`
 }
 
-// DailyProductSoldReport is the recap of a single product sold on a single day.
 type DailyProductSoldReport struct {
 	Date        time.Time `gorm:"column:date"`
 	ProductName string    `gorm:"column:product_name"`
@@ -102,31 +100,20 @@ type DailyProductSoldReport struct {
 	Total       int64     `gorm:"column:total"`
 }
 
-// TransactionDebtSnapshot captures how a hutang (debt) sale affected the
-// customer's debt balance, everything a receipt needs to show "sisa hutang
-// sebelumnya" vs "sisa hutang sekarang". CreateTransaction only returns this
-// when the sale is a debt sale linked to a customer; a cash/non-debt sale
-// returns nil since it never touches the debts table.
 type TransactionDebtSnapshot struct {
 	DebtID                uuid.UUID
-	PreviousRemainingDebt int64           // remaining debt before this transaction
-	AmountAdded           int64           // this transaction's total, added to the debt
-	TotalDebt             int64           // cumulative total ever owed, after this transaction
-	RemainingDebt         int64           // remaining owed, after this transaction
-	Status                enum.DebtStatus // BELUM_LUNAS/LUNAS after this transaction
+	PreviousRemainingDebt int64
+	AmountAdded           int64
+	TotalDebt             int64
+	RemainingDebt         int64
+	Status                enum.DebtStatus
 }
 
 type TransactionRepository interface {
-	// CreateTransaction saves the transaction + details atomically. deductStock
-	// is false for transactions from online payments whose stock was already
-	// reserved at charge time (must not be deducted twice). Returns a
-	// TransactionDebtSnapshot only when isHutang is true and the transaction is
-	// linked to a customer (nil for cash/non-debt sales).
 	CreateTransaction(ctx context.Context, transaction *Transactions, isHutang bool, deductStock bool) (*TransactionDebtSnapshot, error)
 	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transactions, error)
 	GetAllTransaction(ctx context.Context, filter FilterTransaction) (*ResultTransaction, error)
 	DeleteTransaction(ctx context.Context, id uuid.UUID) error
-	UpdateTransaction(ctx context.Context, id uuid.UUID, trx *Transactions) error
 	CheckTransactionByNoInvoice(ctx context.Context, noInvoice string) (*Transactions, error)
 	GetMonthlyReport(ctx context.Context, month int, year int) (*MonthlyReport, error)
 	GetDailyReport(ctx context.Context, month int, year int) ([]DailyReport, error)
@@ -135,13 +122,7 @@ type TransactionRepository interface {
 }
 
 type TransactionUsecase interface {
-	// AddTransaction returns an AddTransactionResponse whose DebtInfo is set
-	// only when the sale is hutang (debt); a cash/transfer/qris sale leaves
-	// DebtInfo nil.
 	AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error)
-	// AddPrepaidTransaction is like AddTransaction but does NOT deduct stock —
-	// only for transactions from online payments whose stock was already
-	// reserved. Do not expose it to the HTTP handler.
 	AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error)
 	GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error)
 	GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*responsedto.GetAllTransactionResponse, error)

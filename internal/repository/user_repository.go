@@ -18,7 +18,6 @@ func NewUserRepository(db *gorm.DB) domain.UserRepository {
 	return &userRepository{db: db}
 }
 
-// GetUserById implements [domain.UserRepository].
 func (u *userRepository) GetUserById(ctx context.Context, id uuid.UUID) (*domain.Users, error) {
 	var userData domain.Users
 	result := u.db.WithContext(ctx).Where("id = ?", id).First(&userData)
@@ -31,7 +30,6 @@ func (u *userRepository) GetUserById(ctx context.Context, id uuid.UUID) (*domain
 	return &userData, nil
 }
 
-// GetUserByUsername implements [domain.UserRepository].
 func (u *userRepository) GetUserByUsername(ctx context.Context, username string) (*domain.Users, error) {
 	var userData domain.Users
 	result := u.db.WithContext(ctx).Where("username = ?", username).First(&userData)
@@ -46,7 +44,6 @@ func (u *userRepository) GetUserByUsername(ctx context.Context, username string)
 	return &userData, nil
 }
 
-// GetUserLogin implements [domain.UserRepository].
 func (u *userRepository) GetUserLogin(ctx context.Context, id uuid.UUID) (*domain.Users, error) {
 	var userData domain.Users
 	result := u.db.WithContext(ctx).Where("id = ?", id).First(&userData)
@@ -61,11 +58,12 @@ func (u *userRepository) GetUserLogin(ctx context.Context, id uuid.UUID) (*domai
 	return &userData, nil
 }
 
-// RegisterUser implements [domain.UserRepository].
 func (u *userRepository) RegisterUser(ctx context.Context, user *domain.Users) error {
-	result := u.db.WithContext(ctx).Create(user)
-	if result.Error != nil {
-		return fmt.Errorf("Failed create user: %w", result.Error)
+	if err := u.db.WithContext(ctx).Create(user).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return domain.Duplicate("user already exists")
+		}
+		return fmt.Errorf("failed to create user: %w", err)
 	}
 	return nil
 }

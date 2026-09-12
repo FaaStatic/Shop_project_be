@@ -13,11 +13,9 @@ import (
 )
 
 type Users struct {
-	ID       uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	Username string    `gorm:"type:varchar(100);uniqueIndex;not null" json:"username"`
-	Password string    `gorm:"type:varchar(255);not null" json:"-"`
-	// Without `default` so GORM does not skip the superadmin role (value 0 = zero-value)
-	// on INSERT and replace it with the DB default. The role is always set in the app.
+	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	Username     string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"username"`
+	Password     string         `gorm:"type:varchar(255);not null" json:"-"`
 	Role         enum.UserRole  `gorm:"type:smallint;check:role IN (0,1)" json:"role"`
 	Transactions []Transactions `gorm:"foreignKey:UserID" json:"transactions,omitempty"`
 	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`
@@ -55,4 +53,5 @@ type UserUsecase interface {
 	UserLogin(ctx context.Context, userDto *requestdto.UserLoginRequest) (*responsedto.UserLoginResponse, error)
 	RegisterUser(ctx context.Context, userDto *requestdto.UserRegisterRequest) (*responsedto.UserRegisterResponse, error)
 	RefreshToken(ctx context.Context, refreshDto *requestdto.UserRefreshTokenRequest) (*responsedto.UserLoginResponse, error)
+	Logout(ctx context.Context, accessToken string, logoutDto *requestdto.UserLogoutRequest) error
 }

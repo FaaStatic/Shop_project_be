@@ -12,10 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPayDebt_PartialPaymentReducesRemainingDebt proves a cash payment smaller
-// than the remaining balance reduces RemainingDebt by exactly the paid amount,
-// keeps TotalDebt (the historical amount ever owed) unchanged, leaves the
-// debt BELUM_LUNAS, and records a DebtPayments history row.
 func TestPayDebt_PartialPaymentReducesRemainingDebt(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewDebtRepository(db)
@@ -49,9 +45,6 @@ func TestPayDebt_PartialPaymentReducesRemainingDebt(t *testing.T) {
 	if result.Debt.Status != enum.BELUM_LUNAS {
 		t.Errorf("expected status BELUM_LUNAS while 30000 is still owed, got %v", result.Debt.Status)
 	}
-	// The receipt (struk) needs the pre-payment balance too, not just the
-	// after-state — this is what lets the customer see "sisa hutang
-	// sebelumnya" vs "sisa hutang sekarang".
 	if result.PreviousRemainingDebt != 50000 {
 		t.Errorf("previous remaining debt = %v, want 50000 (the balance before this payment)", result.PreviousRemainingDebt)
 	}
@@ -88,8 +81,6 @@ func TestPayDebt_PartialPaymentReducesRemainingDebt(t *testing.T) {
 	}
 }
 
-// TestPayDebt_FullPaymentFlipsStatusToLunas proves paying exactly the
-// remaining balance zeroes it out and flips the status to LUNAS.
 func TestPayDebt_FullPaymentFlipsStatusToLunas(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewDebtRepository(db)
@@ -128,9 +119,6 @@ func TestPayDebt_FullPaymentFlipsStatusToLunas(t *testing.T) {
 	}
 }
 
-// TestPayDebt_RejectsOverpayment proves the repository refuses a payment
-// larger than what is still owed, and does not mutate the debt or insert a
-// payment row when rejecting.
 func TestPayDebt_RejectsOverpayment(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewDebtRepository(db)
@@ -174,8 +162,6 @@ func TestPayDebt_RejectsOverpayment(t *testing.T) {
 	}
 }
 
-// TestPayDebt_RejectsPaymentOnAlreadyLunasDebt proves a debt that's already
-// fully paid off cannot receive another payment.
 func TestPayDebt_RejectsPaymentOnAlreadyLunasDebt(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewDebtRepository(db)
@@ -205,8 +191,6 @@ func TestPayDebt_RejectsPaymentOnAlreadyLunasDebt(t *testing.T) {
 	}
 }
 
-// TestPayDebt_NotFound proves a nonexistent debt id returns a business
-// not-found error, not an internal one.
 func TestPayDebt_NotFound(t *testing.T) {
 	db := openTestDB(t)
 	repo := repository.NewDebtRepository(db)

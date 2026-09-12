@@ -6,13 +6,10 @@ import (
 	"fmt"
 	"math"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
 	"shop_project_be/pkg/sheet"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -30,7 +27,6 @@ func NewProductUsecase(productRepo domain.ProductRepository, log *zap.Logger) do
 	}
 }
 
-// GetProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*domain.Products, error) {
 	productUid, errUid := uuid.Parse(request.ID)
 	if errUid != nil {
@@ -48,38 +44,33 @@ func (p *productUsecase) GetProductShop(ctx context.Context, request *requestdto
 	return products, nil
 }
 
-// AddBulkProductShopWithLock implements [domain.ProductUsecase].
-// Adds many products from an uploaded CSV/Excel file. Steps:
-//  1. parse the file into product rows,
-//  2. dedupe duplicate SKUs within the file (keep the first occurrence),
-//  3. validate each row's unit,
-//  4. hand off to the repo, which checks existing SKUs + batch-inserts
-//     in sorted order with ON CONFLICT DO NOTHING (anti-deadlock & anti-duplicate).
-func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error {
+func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) (*responsedto.ProductBulkImportResponse, error) {
 	if request.FileUpload == nil {
-		return fmt.Errorf("file upload is required")
+		return nil, domain.Validation("file upload is required")
 	}
 
 	file, err := request.FileUpload.Open()
 	if err != nil {
 		p.log.Error("failed to open uploaded file", zap.Error(err))
-		return fmt.Errorf("failed to open uploaded file: %w", domain.ErrInternal)
+		return nil, fmt.Errorf("failed to open uploaded file: %w", domain.ErrInternal)
 	}
 	defer file.Close()
 
 	rows, rowErrors, err := sheet.ParseProducts(file, request.FileUpload.Filename)
 	if err != nil {
-		p.log.Error("failed to parse uploaded file", zap.Error(err))
-		return fmt.Errorf("failed to parse file: %w", err)
+		p.log.Warn("failed to parse uploaded file", zap.Error(err))
+		return nil, domain.Validation(fmt.Sprintf("failed to parse file: %v", err))
 	}
 
+	report := &responsedto.ProductBulkImportResponse{
+		SkippedSKUs:     []string{},
+		DuplicateInFile: []string{},
+	}
 	seen := make(map[string]struct{}, len(rows))
 	products := make([]*domain.Products, 0, len(rows))
-	var duplicateInFile []string
-
 	for _, row := range rows {
 		if _, exists := seen[row.SKU]; exists {
-			duplicateInFile = append(duplicateInFile, row.SKU)
+			report.DuplicateInFile = append(report.DuplicateInFile, row.SKU)
 			continue
 		}
 		seen[row.SKU] = struct{}{}
@@ -107,53 +98,56 @@ func (p *productUsecase) AddBulkProductShopWithLock(ctx context.Context, request
 			Image:            row.Image,
 		})
 	}
+	report.RowErrors = make([]responsedto.BulkImportRowError, 0, len(rowErrors))
+	for _, re := range rowErrors {
+		report.RowErrors = append(report.RowErrors, responsedto.BulkImportRowError{Line: re.Line, Message: re.Message})
+	}
 
 	if len(products) == 0 {
-		p.log.Warn("no valid product to insert",
-			zap.Int("row_errors", len(rowErrors)),
-			zap.Int("duplicate_in_file", len(duplicateInFile)),
-		)
-		return fmt.Errorf("no valid product to import")
+		return report, nil
 	}
 
 	result, err := p.productRepo.AddBulkProduct(ctx, products)
 	if err != nil {
 		p.log.Error("failed to bulk insert products", zap.Error(err))
-		return fmt.Errorf("failed to import products: %w", domain.ErrInternal)
+		return nil, fmt.Errorf("failed to import products: %w", domain.ErrInternal)
 	}
+	report.TotalInserted = result.TotalInserted
+	report.TotalSkipped = result.TotalSkipped
+	report.SkippedSKUs = result.SkippedSKUs
 
 	p.log.Info("bulk product import finished",
 		zap.Int("inserted", result.TotalInserted),
 		zap.Int("skipped_existing", result.TotalSkipped),
-		zap.Int("duplicate_in_file", len(duplicateInFile)),
-		zap.Int("row_errors", len(rowErrors)),
+		zap.Int("duplicate_in_file", len(report.DuplicateInFile)),
+		zap.Int("row_errors", len(report.RowErrors)),
 	)
-
-	return nil
+	return report, nil
 }
 
-// AddProductShopWithLock implements [domain.ProductUsecase].
 func (p *productUsecase) AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error {
 	err := p.productRepo.AddProduct(ctx, &domain.Products{
 		SKU:              request.SKU,
 		ProductName:      request.ProductName,
 		Unit:             enum.ProductUnit(request.Unit),
 		ProductType:      enum.ProductType(request.ProductType),
-		PurchasePrice:    request.PurchasePrice,
-		SellingPrice:     request.SellingPrice,
-		SellingPriceDebt: request.SellingPriceDebt,
-		Stock:            request.Stock,
+		PurchasePrice:    *request.PurchasePrice,
+		SellingPrice:     *request.SellingPrice,
+		SellingPriceDebt: *request.SellingPriceDebt,
+		Stock:            *request.Stock,
 		Category:         request.Category,
 		Image:            request.Image,
 	})
 	if err != nil {
 		p.log.Error("failed to add product", zap.Error(err))
-		return fmt.Errorf("failed to add product: %w", domain.ErrInternal)
+		if errors.Is(err, domain.ErrInternal) {
+			return fmt.Errorf("failed to add product: %w", domain.ErrInternal)
+		}
+		return err
 	}
 	return nil
 }
 
-// DeleteProductShop implements [domain.ProductUsecase].
 func (p *productUsecase) DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error {
 	id, errId := uuid.Parse(request.ID)
 	if errId != nil {
@@ -171,37 +165,10 @@ func (p *productUsecase) DeleteProductShop(ctx context.Context, request *request
 	return nil
 }
 
-// GetAllProductShop implements [domain.ProductUsecase].
-// Fetches the product list with search support, category filter, and
-// cursor pagination (last_id + after_time from the previous page's result).
 func (p *productUsecase) GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*responsedto.GetAllProductResponse, error) {
-	// Cursor pagination is optional. On the first page the frontend does not yet have
-	// last_id/after_time, so empty/absent parameters are treated as
-	// "no cursor" (not an error). The cursor is used only when both are set.
-	var lastId, afterTimeRaw string
-	if request.LastId != nil {
-		lastId = strings.TrimSpace(*request.LastId)
-	}
-	if request.AfterTime != nil {
-		afterTimeRaw = strings.TrimSpace(*request.AfterTime)
-	}
-
-	var cursor *paginated.CursorMeta
-	if lastId != "" && afterTimeRaw != "" {
-		afterTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
-		if err != nil {
-			p.log.Error("failed to parse after_time", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_time format")
-		}
-		lastID, err := uuid.Parse(lastId)
-		if err != nil {
-			p.log.Error("failed to parse last_id", zap.Error(err))
-			return nil, domain.InvalidID("invalid last_id format")
-		}
-		cursor = &paginated.CursorMeta{
-			AfterTime: afterTime,
-			AfterID:   lastID,
-		}
+	cursor, err := parseCursor(request.LastId, request.AfterTime)
+	if err != nil {
+		return nil, err
 	}
 
 	filter := domain.FilterAllProduct{
@@ -235,8 +202,6 @@ func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request
 		})
 	}
 
-	// The cursor is nil on the last page (HasNext=false). Encode is nil-safe
-	// and returns empty strings instead of a nil-pointer panic.
 	nextId, nextTime := result.Cursor.Encode()
 
 	responses := responsedto.GetAllProductResponse{
@@ -249,10 +214,6 @@ func (p *productUsecase) GetAllProductShop(ctx context.Context, request *request
 	return &responses, nil
 }
 
-// UpdateProductShopWithLock implements [domain.ProductUsecase].
-// Updates product attributes under a row-level lock so concurrent changes
-// don't overwrite each other. Stock changes go via delta (atomic within the
-// lock); the DTO's stock field is not used here to avoid two sources of truth.
 func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request *requestdto.UpdateProduct, delta float64) error {
 	id, err := uuid.Parse(request.ID)
 	if err != nil {
@@ -269,6 +230,9 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 	}
 	if request.Unit != nil {
 		fields["unit"] = enum.ProductUnit(*request.Unit)
+	}
+	if request.ProductType != nil {
+		fields["product_type"] = enum.ProductType(*request.ProductType)
 	}
 	if request.PurchasePrice != nil {
 		fields["purchase_price"] = *request.PurchasePrice
@@ -287,13 +251,11 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 	}
 
 	if len(fields) == 0 && delta == 0 {
-		return fmt.Errorf("no fields to update")
+		return domain.Validation("no fields to update")
 	}
 
 	if err := p.productRepo.UpdateProductWithLock(ctx, id, fields, delta); err != nil {
 		p.log.Error("failed to update product", zap.Error(err))
-		// Hide DB/driver detail on internal failures; keep business errors
-		// (e.g. insufficient stock) visible to the caller.
 		if errors.Is(err, domain.ErrInternal) {
 			return fmt.Errorf("failed to update product: %w", domain.ErrInternal)
 		}
@@ -302,9 +264,6 @@ func (p *productUsecase) UpdateProductShopWithLock(ctx context.Context, request 
 	return nil
 }
 
-// UpdateStockWithLock implements [domain.ProductUsecase].
-// Increments/decrements product stock by delta atomically with a row-level
-// lock (SELECT ... FOR UPDATE) in the repository, so it's safe from race/deadlock.
 func (p *productUsecase) UpdateStockWithLock(ctx context.Context, request *requestdto.UpdateStock, delta float64) error {
 	id, err := uuid.Parse(request.ID)
 	if err != nil {

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"shop_project_be/internal/delivery/http/middleware"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	"shop_project_be/pkg/response"
@@ -37,7 +36,6 @@ func (h *CustomerHandler) Add(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
@@ -66,7 +64,6 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	req.CustomerId = c.Params("id")
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
@@ -91,10 +88,7 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 //	@Failure		500		{object}	response.APIResponse
 //	@Router			/api/customers/{id} [delete]
 func (h *CustomerHandler) Delete(c fiber.Ctx) error {
-	req := requestdto.DeleteCustomer{
-		CustomerId: c.Params("id"),
-		UserId:     middleware.GetUserID(c),
-	}
+	req := requestdto.DeleteCustomer{CustomerId: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
@@ -149,7 +143,9 @@ func (h *CustomerHandler) List(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
-	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	customers, err := h.usecase.GetListCustomerShop(c.Context(), &req)
 	if err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)

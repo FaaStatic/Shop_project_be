@@ -19,23 +19,23 @@ func NewPaymentRepository(db *gorm.DB) domain.PaymentRepository {
 	return &paymentRepository{db: db}
 }
 
-// Create stores a new payment (initial status pending). A duplicate order_id
-// (race between two concurrent charges) surfaces as a unique-constraint
-// violation, which gorm TranslateError maps to gorm.ErrDuplicatedKey — reported
-// as a domain.Duplicate so the handler returns 409 instead of 500.
-func (p *paymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
-	if err := p.db.WithContext(ctx).Create(payment).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return domain.Duplicate("payment with invoice " + payment.OrderID + " already exists")
+func (p *paymentRepository) CreateWithReservation(ctx context.Context, payment *domain.Payment) error {
+	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
+		if payment.StockReserved {
+			if err := decrementStock(tx, paymentLines(payment.Items)); err != nil {
+				return err
+			}
 		}
-		return fmt.Errorf("failed to create payment: %w", err)
-	}
-	return nil
+		if err := tx.Create(payment).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return domain.Duplicate("payment with invoice " + payment.OrderID + " already exists")
+			}
+			return internalErr(fmt.Errorf("failed to create payment: %w", err))
+		}
+		return nil
+	})
 }
 
-// GetByOrderID fetches the payment by order_id (= no_invoice).
-// Returns (nil, nil) when not found so the caller can
-// distinguish "absent" from a real error.
 func (p *paymentRepository) GetByOrderID(ctx context.Context, orderID string) (*domain.Payment, error) {
 	var payment domain.Payment
 	err := p.db.WithContext(ctx).Where("order_id = ?", orderID).First(&payment).Error
@@ -48,17 +48,6 @@ func (p *paymentRepository) GetByOrderID(ctx context.Context, orderID string) (*
 	return &payment, nil
 }
 
-// Update saves changes to the payment status/attributes (full save).
-func (p *paymentRepository) Update(ctx context.Context, payment *domain.Payment) error {
-	if err := p.db.WithContext(ctx).Save(payment).Error; err != nil {
-		return fmt.Errorf("failed to update payment: %w", err)
-	}
-	return nil
-}
-
-// ListStalePending implements [domain.PaymentRepository]. Pending payments past
-// expiry_time (+10 min grace, giving a normal webhook time to arrive) or —
-// if expiry is not recorded — older than 24h, are picked for reconciliation.
 func (p *paymentRepository) ListStalePending(ctx context.Context, limit int) ([]*domain.Payment, error) {
 	now := time.Now()
 	var payments []*domain.Payment
@@ -66,7 +55,7 @@ func (p *paymentRepository) ListStalePending(ctx context.Context, limit int) ([]
 		Where("status = ?", domain.PaymentPending).
 		Where("(expiry_time IS NOT NULL AND expiry_time < ?) OR (expiry_time IS NULL AND created_at < ?)",
 			now.Add(-10*time.Minute), now.Add(-24*time.Hour)).
-		Order("created_at ASC").
+		Order("updated_at ASC").
 		Limit(limit).
 		Find(&payments).Error
 	if err != nil {
@@ -75,19 +64,33 @@ func (p *paymentRepository) ListStalePending(ctx context.Context, limit int) ([]
 	return payments, nil
 }
 
-// UpdateWithLock implements [domain.PaymentRepository]. The payment row is locked
-// FOR UPDATE during the transaction so a concurrent webhook for the same order
-// waits, then sees the final status via the re-check in fn.
-//
-// Note: fn may open another DB connection (e.g. creating a sales transaction
-// via another usecase); the connection pool must be > 1 to avoid mutual waiting.
+func (p *paymentRepository) ListPendingFinalization(ctx context.Context, limit int) ([]*domain.Payment, error) {
+	var payments []*domain.Payment
+	err := p.db.WithContext(ctx).
+		Where("status = ?", domain.PaymentSettling).
+		Order("updated_at ASC").
+		Limit(limit).
+		Find(&payments).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list payments pending finalization: %w", err)
+	}
+	return payments, nil
+}
+
+func (p *paymentRepository) Touch(ctx context.Context, orderID string) error {
+	return p.db.WithContext(ctx).Model(&domain.Payment{}).
+		Where("order_id = ?", orderID).
+		UpdateColumn("updated_at", time.Now()).Error
+}
+
 func (p *paymentRepository) UpdateWithLock(ctx context.Context, orderID string, fn func(payment *domain.Payment) (bool, error)) error {
 	return runTxDB(ctx, p.db, func(tx *gorm.DB) error {
 		var payment domain.Payment
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("order_id = ?", orderID).First(&payment).Error; err != nil {
-			return fmt.Errorf("failed to lock payment: %w", err)
+			return internalErr(fmt.Errorf("failed to lock payment: %w", err))
 		}
+		wasReserved := payment.StockReserved
 		save, err := fn(&payment)
 		if err != nil {
 			return err
@@ -95,8 +98,13 @@ func (p *paymentRepository) UpdateWithLock(ctx context.Context, orderID string, 
 		if !save {
 			return nil
 		}
+		if wasReserved && !payment.StockReserved && payment.TransactionID == nil {
+			if err := incrementStock(tx, paymentLines(payment.Items)); err != nil {
+				return err
+			}
+		}
 		if err := tx.Save(&payment).Error; err != nil {
-			return fmt.Errorf("failed to update payment: %w", err)
+			return internalErr(fmt.Errorf("failed to update payment: %w", err))
 		}
 		return nil
 	})

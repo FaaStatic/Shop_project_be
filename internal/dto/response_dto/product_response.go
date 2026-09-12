@@ -20,9 +20,17 @@ type ProductDtoResponse struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-type ProductAddBulkResponse struct {
+type ProductBulkImportResponse struct {
+	TotalInserted   int                  `json:"total_inserted"`
+	TotalSkipped    int                  `json:"total_skipped"`
+	SkippedSKUs     []string             `json:"skipped_skus"`
+	DuplicateInFile []string             `json:"duplicate_in_file"`
+	RowErrors       []BulkImportRowError `json:"row_errors"`
+}
+
+type BulkImportRowError struct {
+	Line    int    `json:"line"`
 	Message string `json:"message"`
-	Status  int    `json:"status"`
 }
 
 type GetAllProductResponse struct {

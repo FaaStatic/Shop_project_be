@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// fakeDebtRepo is a same-package fake of domain.DebtRepository.
 type fakeDebtRepo struct {
 	domain.DebtRepository
 
@@ -80,7 +79,6 @@ func TestAddingDebtCustomer_Success(t *testing.T) {
 	if repo.added == nil {
 		t.Fatal("expected AddDebt to be called")
 	}
-	// A newly recorded manual debt starts fully owed and unpaid.
 	if repo.added.TotalDebt != 50000 || repo.added.RemainingDebt != 50000 {
 		t.Errorf("total=%v remaining=%v, want both 50000", repo.added.TotalDebt, repo.added.RemainingDebt)
 	}
@@ -223,8 +221,6 @@ func TestPayDebtCash_Success(t *testing.T) {
 	if repo.payPayment == nil || repo.payPayment.UserID != userID || repo.payPayment.NominalBayar != 15000 {
 		t.Errorf("unexpected payment passed to repository: %+v", repo.payPayment)
 	}
-	// The receipt (struk) must show what was owed before this payment, not
-	// just the after-state — that's the whole point of the receipt.
 	if resp.PreviousRemainingDebt != 20000 {
 		t.Errorf("expected previous remaining debt 20000, got %d", resp.PreviousRemainingDebt)
 	}
@@ -323,9 +319,6 @@ func TestPayDebtCash_RejectsNonPositiveNominal(t *testing.T) {
 }
 
 func TestPayDebtCash_OverpaymentRejectedByRepository(t *testing.T) {
-	// The repository is the source of truth for "does this exceed what's
-	// owed" (it holds the locked, authoritative RemainingDebt); the usecase
-	// must propagate that business error unchanged, not swallow or reword it.
 	repo := &fakeDebtRepo{payErr: errOverpaymentFixture}
 	u := newTestDebtUsecase(repo)
 

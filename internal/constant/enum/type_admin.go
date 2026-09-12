@@ -8,8 +8,8 @@ import (
 type UserRole int
 
 const (
-	superadmin UserRole = iota // 0
-	staff                      // 1
+	superadmin UserRole = iota
+	staff
 )
 
 func (typeUser UserRole) String() string {

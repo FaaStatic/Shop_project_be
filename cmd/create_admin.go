@@ -20,8 +20,6 @@ var (
 	createAdminRole     string
 )
 
-// createAdmin creates an admin/superadmin account directly in the database. The public
-// register endpoint is staff-only, so privileged accounts are created via this CLI.
 var createAdmin = &cobra.Command{
 	Use:   "create-admin",
 	Short: "Create an admin or superadmin account directly in the database",
@@ -30,7 +28,6 @@ var createAdmin = &cobra.Command{
 		loggerconfig.LoggerCustom(env)
 		defer loggerconfig.Logger.Sync()
 
-		// CLI is only for superadmin accounts; staff go through the register endpoint.
 		if createAdminRole != "superadmin" {
 			loggerconfig.Logger.Fatal("role must be 'superadmin'", zap.String("role", createAdminRole))
 		}

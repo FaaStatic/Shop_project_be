@@ -37,7 +37,6 @@ func (h *ProductHandler) Add(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
@@ -55,9 +54,9 @@ func (h *ProductHandler) Add(c fiber.Ctx) error {
 //	@Accept			multipart/form-data
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			name_file	formData	string	false	"Nama file"
-//	@Param			file_upload	formData	file	true	"Product CSV/Excel file"
-//	@Success		201			{object}	response.APIResponse
+//	@Param			file_upload	formData	file	true	"Product CSV/Excel file (max 10000 rows)"
+//	@Success		201			{object}	response.APIResponse	"Some rows imported; data is the per-row report"
+//	@Success		200			{object}	response.APIResponse	"Nothing imported; data says why"
 //	@Failure		400			{object}	response.APIResponse
 //	@Router			/api/products/bulk [post]
 func (h *ProductHandler) AddBulk(c fiber.Ctx) error {
@@ -65,15 +64,14 @@ func (h *ProductHandler) AddBulk(c fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "file_upload is required", err)
 	}
-	req := requestdto.AddBulkProduct{
-		UserId:     middleware.GetUserID(c),
-		NameFile:   c.FormValue("name_file"),
-		FileUpload: fileHeader,
-	}
-	if err := h.usecase.AddBulkProductShopWithLock(c.Context(), &req); err != nil {
+	result, err := h.usecase.AddBulkProductShopWithLock(c.Context(), &requestdto.AddBulkProduct{FileUpload: fileHeader})
+	if err != nil {
 		return writeError(c, fiber.StatusBadRequest, err)
 	}
-	return response.Success(c, fiber.StatusCreated, "bulk product imported", nil)
+	if result.TotalInserted == 0 {
+		return response.Success(c, fiber.StatusOK, "no product imported", result)
+	}
+	return response.Success(c, fiber.StatusCreated, "bulk product imported", result)
 }
 
 // Get godoc
@@ -109,7 +107,6 @@ func (h *ProductHandler) Get(c fiber.Ctx) error {
 //	@Security		BearerAuth
 //	@Param			category	query		string	false	"Filter kategori"
 //	@Param			search		query		string	false	"Search by product name/SKU"
-//	@Param			page		query		int		false	"Page"
 //	@Param			limit		query		int		false	"Number of items per page"
 //	@Param			last_id		query		string	false	"Last ID for cursor pagination"
 //	@Param			after_time	query		string	false	"Time cursor for pagination"
@@ -124,6 +121,9 @@ func (h *ProductHandler) List(c fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
 	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	products, err := h.usecase.GetAllProductShop(c.Context(), &req)
 	if err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
@@ -154,7 +154,6 @@ func (h *ProductHandler) Update(c fiber.Ctx) error {
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
-	// Stock changes are handled by the dedicated stock endpoint, so delta = 0.
 	if err := h.usecase.UpdateProductShopWithLock(c.Context(), &req, 0); err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
 	}
@@ -185,6 +184,11 @@ func (h *ProductHandler) UpdateStock(c fiber.Ctx) error {
 	if err := h.usecase.UpdateStockWithLock(c.Context(), &req, req.Stock); err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
 	}
+	h.log.Info("audit: stock adjusted",
+		zap.String("user_id", middleware.GetUserID(c)),
+		zap.String("product_id", req.ID),
+		zap.Float64("delta", req.Stock),
+	)
 	return response.Success(c, fiber.StatusOK, "stock updated", nil)
 }
 

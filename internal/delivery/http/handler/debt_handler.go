@@ -37,13 +37,18 @@ func (h *DebtHandler) Add(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.AddingDebtCustomer(c.Context(), &req); err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
 	}
+	h.log.Info("audit: manual debt added",
+		zap.String("user_id", middleware.GetUserID(c)),
+		zap.String("customer_id", req.CustomerID),
+		zap.Int64("amount", req.TotalTransaksi),
+		zap.String("jatuh_tempo", req.JatuhTempo),
+	)
 	return response.Success(c, fiber.StatusCreated, "debt created", nil)
 }
 
@@ -61,10 +66,7 @@ func (h *DebtHandler) Add(c fiber.Ctx) error {
 //	@Failure		500		{object}	response.APIResponse
 //	@Router			/api/debts/{id} [delete]
 func (h *DebtHandler) Delete(c fiber.Ctx) error {
-	req := requestdto.DeleteDebtRequest{
-		DebtId: c.Params("id"),
-		UserId: middleware.GetUserID(c),
-	}
+	req := requestdto.DeleteDebtRequest{DebtId: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
@@ -93,7 +95,9 @@ func (h *DebtHandler) List(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
-	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	result, err := h.usecase.GetAllDebtCustomerList(c.Context(), &req)
 	if err != nil {
 		return writeError(c, fiber.StatusInternalServerError, err)
@@ -173,7 +177,6 @@ func (h *DebtHandler) Report(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}

@@ -15,8 +15,6 @@ import (
 
 var errInsufficientStockFixture = errors.New("insufficient stock for product X")
 
-// fakeProdRepo is a same-package fake of domain.ProductRepository covering the
-// methods productUsecase actually calls (Add/Delete/UpdateWithLock/UpdateStockWithLock).
 type fakeProdRepo struct {
 	domain.ProductRepository
 
@@ -60,13 +58,16 @@ func newTestProductUsecase(repo *fakeProdRepo) *productUsecase {
 	return &productUsecase{productRepo: repo, log: zap.NewNop()}
 }
 
+func ptr[T any](v T) *T { return &v }
+
 func TestAddProductShopWithLock_Success(t *testing.T) {
 	repo := &fakeProdRepo{}
 	u := newTestProductUsecase(repo)
 
 	req := &requestdto.AddProduct{
-		SKU: "SKU-1", ProductName: "Gula", PurchasePrice: 10000, SellingPrice: 13000,
-		SellingPriceDebt: 14000, Stock: 20, Category: "sembako",
+		SKU: "SKU-1", ProductName: "Gula",
+		PurchasePrice: ptr(int64(10000)), SellingPrice: ptr(int64(13000)),
+		SellingPriceDebt: ptr(int64(14000)), Stock: ptr(float64(20)), Category: "sembako",
 	}
 	if err := u.AddProductShopWithLock(context.Background(), req); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -80,7 +81,10 @@ func TestAddProductShopWithLock_RepoErrorIsWrapped(t *testing.T) {
 	repo := &fakeProdRepo{addErr: wrapInternal(errBoomFixture)}
 	u := newTestProductUsecase(repo)
 
-	err := u.AddProductShopWithLock(context.Background(), &requestdto.AddProduct{SKU: "X"})
+	err := u.AddProductShopWithLock(context.Background(), &requestdto.AddProduct{
+		SKU: "X", PurchasePrice: ptr(int64(1)), SellingPrice: ptr(int64(2)),
+		SellingPriceDebt: ptr(int64(3)), Stock: ptr(float64(1)),
+	})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -133,7 +137,6 @@ func TestUpdateProductShopWithLock_BuildsPartialFieldMap(t *testing.T) {
 	if repo.updatedDelta != 5 {
 		t.Errorf("expected stock delta 5, got %v", repo.updatedDelta)
 	}
-	// Fields left nil in the DTO must not appear in the map at all.
 	if _, ok := repo.updatedFields["sku"]; ok {
 		t.Error("sku was not provided in the request and must be absent from the update map")
 	}

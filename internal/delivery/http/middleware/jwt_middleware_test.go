@@ -14,8 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// fakeSessionRepo is a same-package fake of domain.SessionRepository: only
-// Exists is used by JWTMiddleware.Auth.
 type fakeSessionRepo struct {
 	domain.SessionRepository
 	exists bool
@@ -26,9 +24,6 @@ func (f *fakeSessionRepo) Exists(ctx context.Context, key string) (bool, error) 
 	return f.exists, f.err
 }
 
-// newTestApp wires a fiber app with a single protected route guarded by Auth,
-// plus a superadmin-only route guarded by Auth+RequireRole, mirroring how
-// route.go composes them for /api routes.
 func newTestApp(mw *JWTMiddleware) *fiber.App {
 	app := fiber.New()
 	log := zap.NewNop()
@@ -42,7 +37,7 @@ func newTestApp(mw *JWTMiddleware) *fiber.App {
 }
 
 func TestAuth_RejectsMissingToken(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -57,7 +52,7 @@ func TestAuth_RejectsMissingToken(t *testing.T) {
 }
 
 func TestAuth_RejectsInvalidToken(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -73,7 +68,7 @@ func TestAuth_RejectsInvalidToken(t *testing.T) {
 }
 
 func TestAuth_RejectsRefreshTokenOnAccessRoute(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -94,10 +89,7 @@ func TestAuth_RejectsRefreshTokenOnAccessRoute(t *testing.T) {
 }
 
 func TestAuth_RejectsRevokedSession(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
-	// exists=false simulates a session that was deleted (logout) or never
-	// created — the JWT itself is still validly signed and unexpired, but the
-	// server-side session store is authoritative for revocation.
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: false})
 	app := newTestApp(mw)
 
@@ -118,7 +110,7 @@ func TestAuth_RejectsRevokedSession(t *testing.T) {
 }
 
 func TestAuth_AllowsValidAccessTokenWithLiveSession(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -139,8 +131,8 @@ func TestAuth_AllowsValidAccessTokenWithLiveSession(t *testing.T) {
 }
 
 func TestAuth_RejectsTokenSignedWithDifferentSecret(t *testing.T) {
-	issuer := jwt.NewJWTService("secret-a", 15, 24)
-	verifier := jwt.NewJWTService("secret-b", 15, 24)
+	issuer := jwt.NewJWTService("secret-a", 15*time.Minute, 24*time.Hour)
+	verifier := jwt.NewJWTService("secret-b", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(verifier, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -161,11 +153,11 @@ func TestAuth_RejectsTokenSignedWithDifferentSecret(t *testing.T) {
 }
 
 func TestAuth_RejectsExpiredAccessToken(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
-	svcShortTTL := jwt.NewJWTService("secret", 0, 24) // 0-minute access TTL: expired the instant it's issued
+	svcShortTTL := jwt.NewJWTService("secret", 0, 24*time.Hour)
 	time.Sleep(2 * time.Millisecond)
 	pair, err := svcShortTTL.GenerateTokenPair(uuidLikeID, "staff")
 	if err != nil {
@@ -185,7 +177,7 @@ func TestAuth_RejectsExpiredAccessToken(t *testing.T) {
 }
 
 func TestRequireRole_AllowsMatchingRole(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
@@ -206,12 +198,10 @@ func TestRequireRole_AllowsMatchingRole(t *testing.T) {
 }
 
 func TestRequireRole_RejectsNonMatchingRole(t *testing.T) {
-	svc := jwt.NewJWTService("secret", 15, 24)
+	svc := jwt.NewJWTService("secret", 15*time.Minute, 24*time.Hour)
 	mw := NewJwtMiddleware(svc, &fakeSessionRepo{exists: true})
 	app := newTestApp(mw)
 
-	// A regular staff/cashier must not reach a superadmin-only action, such
-	// as deleting a transaction or a product.
 	pair, err := svc.GenerateTokenPair(uuidLikeID, "staff")
 	if err != nil {
 		t.Fatalf("generate token pair: %v", err)

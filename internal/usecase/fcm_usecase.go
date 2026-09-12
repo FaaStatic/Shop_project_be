@@ -3,11 +3,10 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"shop_project_be/infrastructure/fcm"
 	"shop_project_be/internal/domain"
+	"shop_project_be/pkg/pdf"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -27,12 +26,10 @@ func NewFcmUsecase(client *fcm.Sender, repo domain.DeviceTokenRepository, logger
 	}
 }
 
-// HandleLogout implements [domain.DeviceTokenUsecase].
 func (f *fcmUsecase) HandleLogout(ctx context.Context, token string) error {
 	return f.fcmRepo.DetachDeviceTokenFromUser(ctx, token)
 }
 
-// NotifyPaymentResult implements [domain.DeviceTokenUsecase].
 func (f *fcmUsecase) NotifyPaymentResult(ctx context.Context, userID string, orderID string, success bool, amount int64) error {
 	userid, err := uuid.Parse(userID)
 	if err != nil {
@@ -51,7 +48,7 @@ func (f *fcmUsecase) NotifyPaymentResult(ctx context.Context, userID string, ord
 	if success {
 		payload = domain.Payload{
 			Title: "Pembayaran Berhasil",
-			Body:  fmt.Sprintf("Pembayaran %s untuk pesanan %s berhasil.", formatRupiah(amount), orderID),
+			Body:  fmt.Sprintf("Pembayaran %s untuk pesanan %s berhasil.", pdf.FormatRupiah(amount), orderID),
 			Data: map[string]string{
 				"order_id": orderID,
 				"status":   "success",
@@ -61,7 +58,7 @@ func (f *fcmUsecase) NotifyPaymentResult(ctx context.Context, userID string, ord
 	} else {
 		payload = domain.Payload{
 			Title: "Pembayaran Gagal",
-			Body:  fmt.Sprintf("Pembayaran %s untuk pesanan %s gagal. Silakan coba lagi.", formatRupiah(amount), orderID),
+			Body:  fmt.Sprintf("Pembayaran %s untuk pesanan %s gagal. Silakan coba lagi.", pdf.FormatRupiah(amount), orderID),
 			Data: map[string]string{
 				"order_id": orderID,
 				"status":   "failed",
@@ -77,8 +74,6 @@ func (f *fcmUsecase) NotifyPaymentResult(ctx context.Context, userID string, ord
 
 	if len(invalidTokens) > 0 {
 		f.log.Info("Removing invalid device tokens", zap.Strings("tokens", invalidTokens))
-		// The notification was already sent; a token-cleanup failure is only logged
-		// so the caller (e.g. the webhook flow) does not treat it as a failure.
 		if err := f.fcmRepo.DeleteDeviceToken(ctx, invalidTokens); err != nil {
 			f.log.Error("failed to delete invalid device tokens", zap.Error(err))
 		}
@@ -87,21 +82,6 @@ func (f *fcmUsecase) NotifyPaymentResult(ctx context.Context, userID string, ord
 	return nil
 }
 
-// formatRupiah memformat nominal ke bentuk "Rp15.000" (pemisah ribuan titik).
-func formatRupiah(amount int64) string {
-	s := strconv.FormatInt(amount, 10)
-	var b strings.Builder
-	b.WriteString("Rp")
-	for i, r := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			b.WriteByte('.')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-// RegisterDevice implements [domain.DeviceTokenUsecase].
 func (f *fcmUsecase) RegisterDevice(ctx context.Context, userID string, token string, platform string, deviceID string) error {
 	dt := &domain.DeviceToken{
 		Token:    token,

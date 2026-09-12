@@ -9,21 +9,20 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
-
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, error) {
-	dsn := "host=" + config.Host + " user=" + config.User + " password=" + config.Password + " dbname=" + config.DBName + " port=" + config.Port + " sslmode=" + config.SSLMode + " TimeZone=" + config.TimeZone
+	dsn := "host=" + config.Host + " user=" + config.User + " password=" + config.Password + " dbname=" + config.DBName + " port=" + config.Port + " sslmode=" + config.SSLMode + " TimeZone=" + config.TimeZone + " statement_timeout=30000 lock_timeout=10000"
 
 	gormLog := zaplogger.NewGormZapLogger(log)
-	usingPooler := false
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: usingPooler,
-	}), &gorm.Config{
+	if env == "production" {
+		gormLog.LogLevel = gormlogger.Warn
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger:                 gormLog,
-		PrepareStmt:            !usingPooler,
+		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
 		TranslateError:         true,
 	})
@@ -36,15 +35,11 @@ func InitDB(config envconfig.DBConfig, log *zap.Logger, env string) (*gorm.DB, e
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
-	// Pool sizing: use config overrides when provided, else the previous
-	// defaults (unchanged behavior). Under prefork each process owns a pool, so
-	// max_open_conns should be tuned so N processes stay within the database's
-	// max_connections.
-	maxOpen := 100
+	maxOpen := 10
 	if config.MaxOpenConns > 0 {
 		maxOpen = config.MaxOpenConns
 	}
-	maxIdle := 10
+	maxIdle := 5
 	if config.MaxIdleConns > 0 {
 		maxIdle = config.MaxIdleConns
 	}

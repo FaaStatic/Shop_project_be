@@ -18,18 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestReserveStock_Concurrent proves the stock guarantee under real concurrency:
-// when N goroutines each try to reserve 1 unit of a product that has exactly
-// `stock` units, precisely `stock` reservations succeed, the rest fail with
-// "insufficient stock", and the row never goes negative — i.e. no oversell and
-// no lost update between two simultaneous users.
-//
-// It needs a real (migrated) Postgres because SELECT ... FOR UPDATE is what
-// provides the guarantee; it is skipped unless TEST_DATABASE_DSN is set, e.g.:
-//
-//	TEST_DATABASE_DSN='host=localhost user=user_test password=... dbname=db_toko port=5432 sslmode=disable' \
-//	  go test ./internal/repository -run TestReserveStock_Concurrent -race -v
-func TestReserveStock_Concurrent(t *testing.T) {
+func TestCreateWithReservation_Concurrent(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_DSN")
 	if dsn == "" {
 		t.Skip("set TEST_DATABASE_DSN to run the concurrency test against a real Postgres")
@@ -43,29 +32,33 @@ func TestReserveStock_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.DB: %v", err)
 	}
-	// The pool must comfortably exceed the goroutine count so contention happens
-	// on the row lock (the thing under test), not on the connection pool.
 	sqlDB.SetMaxOpenConns(30)
 	defer sqlDB.Close()
 
 	const (
-		stock   = 20  // units available
-		workers = 100 // simultaneous buyers, each wanting 1 unit
+		stock   = 20
+		workers = 100
 	)
 
 	product := &domain.Products{
-		SKU:         "CONCURRENCY-TEST-" + uuid.NewString(),
+		SKU:         "CONC-" + uuid.NewString()[:8],
 		ProductName: "concurrency test product",
 		Stock:       stock,
 	}
 	if err := db.Create(product).Error; err != nil {
 		t.Fatalf("seed product: %v", err)
 	}
+	user := &domain.Users{Username: "conc-" + uuid.NewString(), Password: "x"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 	t.Cleanup(func() {
+		db.Unscoped().Delete(&domain.Payment{}, "user_id = ?", user.ID)
 		db.Unscoped().Delete(&domain.Products{}, "id = ?", product.ID)
+		db.Unscoped().Delete(&domain.Users{}, "id = ?", user.ID)
 	})
 
-	repo := repository.NewProductRepository(db)
+	repo := repository.NewPaymentRepository(db)
 
 	var success, insufficient, other int64
 	start := make(chan struct{})
@@ -74,10 +67,17 @@ func TestReserveStock_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-start // release all goroutines at once to maximize contention
+			<-start
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			err := repo.ReserveStock(ctx, []domain.PaymentItem{{ProductID: product.ID, Qty: 1}})
+			err := repo.CreateWithReservation(ctx, &domain.Payment{
+				OrderID:       "CONC-" + uuid.NewString(),
+				UserID:        user.ID,
+				Method:        "qris",
+				Status:        domain.PaymentPending,
+				StockReserved: true,
+				Items:         []domain.PaymentItem{{ProductID: product.ID, Qty: 1}},
+			})
 			switch {
 			case err == nil:
 				atomic.AddInt64(&success, 1)
@@ -110,4 +110,23 @@ func TestReserveStock_Concurrent(t *testing.T) {
 		t.Errorf("final stock = %v, want 0 (must never oversell or go negative)", final.Stock)
 	}
 	fmt.Printf("reserved=%d rejected=%d final_stock=%v\n", success, insufficient, final.Stock)
+
+	var orders []string
+	db.Model(&domain.Payment{}).Where("user_id = ?", user.ID).Limit(1).Pluck("order_id", &orders)
+	if len(orders) != 1 {
+		t.Fatalf("expected a reserved payment to fail, found %d", len(orders))
+	}
+	if err := repo.UpdateWithLock(context.Background(), orders[0], func(p *domain.Payment) (bool, error) {
+		p.Status = domain.PaymentFailed
+		p.StockReserved = false
+		return true, nil
+	}); err != nil {
+		t.Fatalf("fail payment: %v", err)
+	}
+	if err := db.First(&final, "id = ?", product.ID).Error; err != nil {
+		t.Fatalf("reload product: %v", err)
+	}
+	if final.Stock != 1 {
+		t.Errorf("stock after failing one payment = %v, want 1 (its reservation returned)", final.Stock)
+	}
 }
