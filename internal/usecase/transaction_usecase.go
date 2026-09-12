@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"shop_project_be/internal/constant/enum"
-	"shop_project_be/internal/constant/paginated"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	responsedto "shop_project_be/internal/dto/response_dto"
@@ -40,13 +40,8 @@ func NewTransactionUsecase(trxRepo domain.TransactionRepository, productRepo dom
 	}
 }
 
-// invoicePrefix is the mandatory prefix for every transaction no_invoice, shared
-// by cash transactions (AddTransaction) and payments (generateInvoice).
 const invoicePrefix = "INV-"
 
-// ensureInvoicePrefix returns a no_invoice guaranteed to start with "INV-".
-// Idempotent and case-insensitive so an already-correct invoice is not
-// duplicated. If empty, a new invoice is generated.
 func ensureInvoicePrefix(noInvoice string) string {
 	trimmed := strings.TrimSpace(noInvoice)
 	if trimmed == "" {
@@ -58,48 +53,44 @@ func ensureInvoicePrefix(noInvoice string) string {
 	return invoicePrefix + trimmed
 }
 
-// AddTransaction implements [domain.TransactionUsecase].
-func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
+func (t *transactionUsecase) AddTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error) {
 	return t.addTransaction(ctx, dto, true)
 }
 
-// AddPrepaidTransaction implements [domain.TransactionUsecase]: a transaction from
-// an online payment whose stock was already reserved at charge time, so stock
-// is not deducted again here.
-func (t *transactionUsecase) AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) error {
+func (t *transactionUsecase) AddPrepaidTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest) (*responsedto.AddTransactionResponse, error) {
 	return t.addTransaction(ctx, dto, false)
 }
 
-func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest, deductStock bool) error {
-	// Match the payment format: no_invoice always starts with "INV-".
-	// Idempotent — an invoice from a payment (order_id) already prefixed with INV-
-	// is not duplicated into "INV-INV-...".
+func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto.AddTransactionRequest, deductStock bool) (*responsedto.AddTransactionResponse, error) {
 	noInvoice := ensureInvoicePrefix(dto.NoInvoice)
 
 	check, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, noInvoice)
 	if err != nil {
 		t.log.Error("failed to check transaction", zap.Error(err))
-		return fmt.Errorf("failed to check transaction")
+		return nil, fmt.Errorf("failed to check transaction: %w", domain.ErrInternal)
 	}
 	if check != nil {
-		t.log.Error("transaction with no invoice %s already exists", zap.String("no_invoice", noInvoice))
-		return fmt.Errorf("transaction with no invoice %s already exists", noInvoice)
+		t.log.Error("transaction with no invoice already exists", zap.String("no_invoice", noInvoice))
+		return nil, domain.Duplicate(fmt.Sprintf("transaction with no invoice %s already exists", noInvoice))
 	}
 
 	userId, err := uuid.Parse(dto.UserId)
 	if err != nil {
 		t.log.Error("failed to parse user id", zap.Error(err))
-		return fmt.Errorf("invalid user id format")
+		return nil, domain.InvalidID("invalid user id format")
 	}
 
 	user, err := t.userRepo.GetUserById(ctx, userId)
 	if err != nil {
 		t.log.Error("failed to get user", zap.Error(err))
-		return fmt.Errorf("failed to get user")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get user: %w", domain.ErrInternal)
 	}
 	if user == nil {
 		t.log.Error("user not found", zap.String("user_id", dto.UserId))
-		return fmt.Errorf("user not found")
+		return nil, domain.NotFound("user not found")
 	}
 
 	var customerId *uuid.UUID
@@ -107,7 +98,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		parsedID, err := uuid.Parse(*dto.CustomerId)
 		if err != nil {
 			t.log.Error("failed to parse customer ID", zap.Error(err))
-			return fmt.Errorf("failed to parse customer ID")
+			return nil, domain.InvalidID("failed to parse customer ID")
 		}
 		customerId = &parsedID
 	}
@@ -115,7 +106,7 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	paymentType, err := enum.ParseMoneyPayment(dto.TypePayment)
 	if err != nil {
 		t.log.Error("failed to parse payment type", zap.Error(err))
-		return fmt.Errorf("failed to parse payment type")
+		return nil, domain.Validation("payment type is not valid")
 	}
 	isHutang := paymentType.String() == "hutang"
 
@@ -124,73 +115,83 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 	if isTransfer {
 		if dto.Bank == nil || (*dto.Bank != "bca" && *dto.Bank != "mandiri") {
 			t.log.Error("bank is required for transfer", zap.String("no_invoice", noInvoice))
-			return fmt.Errorf("bank (bca/mandiri) is required for transfer payment")
+			return nil, domain.Validation("bank (bca/mandiri) is required for transfer payment")
 		}
 		bank = dto.Bank
 	}
 
-	// Compute subtotal & total on the server; do not trust values from the client.
-	// The debt price (SellingPriceDebt) is used when the payment is a debt.
+	getProduct := t.productRepo.GetProduct
+	if !deductStock {
+		getProduct = t.productRepo.GetProductIncludingDeleted
+	}
+
 	var detailTrx []domain.TransactionsDetail
-	var total float64
+	var total int64
 	for _, detail := range dto.Details {
 		productId, err := uuid.Parse(detail.ProductId)
 		if err != nil {
 			t.log.Error("failed to parse product id", zap.Error(err))
-			return fmt.Errorf("invalid product id format")
+			return nil, domain.InvalidID("invalid product id format")
 		}
-		product, err := t.productRepo.GetProduct(ctx, productId)
+		product, err := getProduct(ctx, productId)
 		if err != nil {
 			t.log.Error("failed to get product", zap.Error(err))
-			return fmt.Errorf("failed to get product")
+			if errors.Is(err, domain.ErrNotFound) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("failed to get product: %w", domain.ErrInternal)
 		}
 		if product == nil {
 			t.log.Error("product not found", zap.String("product_id", detail.ProductId))
-			return fmt.Errorf("product not found")
+			return nil, domain.NotFound("product not found")
 		}
 
 		unitPrice := product.SellingPrice
 		if isHutang && !product.ProductType.IsDigital() {
 			unitPrice = product.SellingPriceDebt
 		}
+		if !deductStock && detail.UnitPrice != nil {
+			unitPrice = *detail.UnitPrice
+		}
 
 		var destination *string
 		if product.ProductType.IsDigital() {
 			if detail.Destination == nil || strings.TrimSpace(*detail.Destination) == "" {
 				t.log.Error("destination required for digital product", zap.String("product_id", detail.ProductId))
-				return fmt.Errorf("destination is required for digital product %s", detail.ProductId)
+				return nil, domain.Validation(fmt.Sprintf("destination is required for digital product %s", detail.ProductId))
 			}
 			d := strings.TrimSpace(*detail.Destination)
 			destination = &d
 		}
 
-		subtotal := unitPrice * detail.Qty
+		subtotal := int64(math.Round(float64(unitPrice) * detail.Qty))
 		total += subtotal
 
 		detailTrx = append(detailTrx, domain.TransactionsDetail{
-			ProductID:   productId,
-			Price:       unitPrice,
-			PriceDebt:   product.SellingPriceDebt,
-			Qty:         detail.Qty,
-			Subtotal:    subtotal,
-			Destination: destination,
+			ProductID:     productId,
+			ProductName:   product.ProductName,
+			Price:         unitPrice,
+			PriceDebt:     product.SellingPriceDebt,
+			PurchasePrice: product.PurchasePrice,
+			Qty:           detail.Qty,
+			Subtotal:      subtotal,
+			Destination:   destination,
 		})
 	}
 
-	// A debt must have a valid customer (validated before writing).
 	if isHutang {
 		if customerId == nil {
 			t.log.Error("customer id is required for hutang")
-			return fmt.Errorf("customer id is required for hutang")
+			return nil, domain.Validation("customer id is required for hutang")
 		}
 		exists, err := t.customerRepo.ExistsCustomer(ctx, *customerId)
 		if err != nil {
 			t.log.Error("failed to get customer", zap.Error(err))
-			return fmt.Errorf("failed to get customer")
+			return nil, fmt.Errorf("failed to get customer: %w", domain.ErrInternal)
 		}
 		if !exists {
 			t.log.Error("customer not found", zap.String("customer_id", *dto.CustomerId))
-			return fmt.Errorf("customer not found")
+			return nil, domain.NotFound("customer not found")
 		}
 	}
 
@@ -204,34 +205,45 @@ func (t *transactionUsecase) addTransaction(ctx context.Context, dto *requestdto
 		TransactionDetail: detailTrx,
 	}
 
-	// Stock is decremented, the debt is upserted, and the transaction is saved in one
-	// DB transaction: all succeed or are rolled back together.
-	if err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock); err != nil {
+	debtSnapshot, err := t.trxRepo.CreateTransaction(ctx, data, isHutang, deductStock)
+	if err != nil {
 		t.log.Error("failed to create transaction", zap.Error(err))
-		// Infrastructure/DB failures must not leak driver detail to the client;
-		// business errors (insufficient stock, product not found) pass through.
 		if errors.Is(err, domain.ErrInternal) {
-			return fmt.Errorf("failed to create transaction")
+			return nil, fmt.Errorf("failed to create transaction: %w", domain.ErrInternal)
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	resp := &responsedto.AddTransactionResponse{
+		TransactionID:    data.ID,
+		NoInvoice:        data.NoInvoice,
+		TotalTransaction: data.TotalTransaction,
+		PaymentType:      paymentType.String(),
+	}
+	if debtSnapshot != nil {
+		resp.DebtInfo = &responsedto.DebtTransactionInfo{
+			DebtID:                debtSnapshot.DebtID.String(),
+			PreviousRemainingDebt: debtSnapshot.PreviousRemainingDebt,
+			AmountAdded:           debtSnapshot.AmountAdded,
+			TotalDebt:             debtSnapshot.TotalDebt,
+			RemainingDebt:         debtSnapshot.RemainingDebt,
+			Status:                debtSnapshot.Status.String(),
+		}
+	}
+
+	return resp, nil
 }
 
-// DeleteTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *requestdto.DeleteTransactionRequest) error {
 	trxId, err := uuid.Parse(dto.ID)
 	if err != nil {
 		t.log.Error("transaction id parse fail", zap.Error(err))
-		return fmt.Errorf("invalid transaction id format")
+		return domain.InvalidID("invalid transaction id format")
 	}
-	// Restoring stock, reversing the debt balance, and deleting the transaction are done
-	// atomically in the repository (all in one DB transaction).
 	if err := t.trxRepo.DeleteTransaction(ctx, trxId); err != nil {
 		t.log.Error("transaction delete fail", zap.Error(err))
 		if errors.Is(err, domain.ErrInternal) {
-			return fmt.Errorf("failed to delete transaction")
+			return fmt.Errorf("failed to delete transaction: %w", domain.ErrInternal)
 		}
 		return err
 	}
@@ -239,36 +251,10 @@ func (t *transactionUsecase) DeleteTransaction(ctx context.Context, dto *request
 	return nil
 }
 
-// GetAllTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *requestdto.FilterTransactionRequest) (*responsedto.GetAllTransactionResponse, error) {
-	// Cursor pagination is optional. On the first page after_id/after_time are not yet
-	// present, so empty/absent parameters are treated as "no cursor".
-	// The cursor is left nil so the repository does not apply a created_at filter
-	// with a zero-time (which would empty the first page).
-	var afterId, afterTimeRaw string
-	if dto.AfterID != nil {
-		afterId = strings.TrimSpace(*dto.AfterID)
-	}
-	if dto.AfterTime != nil {
-		afterTimeRaw = strings.TrimSpace(*dto.AfterTime)
-	}
-
-	var cursor *paginated.CursorMeta
-	if afterId != "" && afterTimeRaw != "" {
-		parsedId, err := uuid.Parse(afterId)
-		if err != nil {
-			t.log.Error("failed to parse after_id", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_id format")
-		}
-		parsedTime, err := time.Parse(paginated.TimeLayout, afterTimeRaw)
-		if err != nil {
-			t.log.Error("failed to parse after_time", zap.Error(err))
-			return nil, fmt.Errorf("invalid after_time format")
-		}
-		cursor = &paginated.CursorMeta{
-			AfterTime: parsedTime,
-			AfterID:   parsedId,
-		}
+	cursor, err := parseCursor(dto.AfterID, dto.AfterTime)
+	if err != nil {
+		return nil, err
 	}
 
 	filter := &domain.FilterTransaction{
@@ -276,14 +262,15 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 		Cursor:     cursor,
 		DateStart:  dto.DateStart,
 		DateEnd:    dto.DateEnd,
-		Limit:      10,
-		TypeTrx:    &dto.TypePayment,
+		Limit:      dto.Limit,
+		Order:      dto.Order,
+		TypeTrx:    dto.TypePayment,
 	}
 
 	result, err := t.trxRepo.GetAllTransaction(ctx, *filter)
 	if err != nil {
 		t.log.Error("failed to get all transactions", zap.Error(err))
-		return nil, fmt.Errorf("failed to get all transactions")
+		return nil, fmt.Errorf("failed to get all transactions: %w", domain.ErrInternal)
 	}
 
 	if result == nil {
@@ -296,7 +283,7 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 		for _, d := range trx.TransactionDetail {
 			details = append(details, &responsedto.ProductTransactionResponse{
 				ProductID:   d.ProductID,
-				ProductName: d.Product.ProductName,
+				ProductName: d.ProductName,
 				Price:       d.Price,
 				Qty:         d.Qty,
 				Subtotal:    d.Subtotal,
@@ -312,7 +299,6 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 		})
 	}
 
-	// Cursor is nil on the last page; Encode is nil-safe (no panic).
 	nextId, nextTime := result.Cursor.Encode()
 
 	return &responsedto.GetAllTransactionResponse{
@@ -324,48 +310,51 @@ func (t *transactionUsecase) GetAllTransaction(ctx context.Context, dto *request
 	}, nil
 }
 
-// GetTransaction implements [domain.TransactionUsecase].
 func (t *transactionUsecase) GetTransaction(ctx context.Context, dto *requestdto.GetTransactionRequest) (*responsedto.TransactionResponse, error) {
 	trxId, err := uuid.Parse(dto.ID)
 	if err != nil {
 		t.log.Error("failed to parse transaction id", zap.Error(err))
-		return nil, fmt.Errorf("invalid transaction id format")
+		return nil, domain.InvalidID("invalid transaction id format")
 	}
 
 	result, err := t.trxRepo.GetTransactionByID(ctx, trxId)
 	if err != nil {
 		t.log.Error("failed to get transaction", zap.Error(err))
-		return nil, fmt.Errorf("failed to get transaction")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get transaction: %w", domain.ErrInternal)
 	}
 	if result == nil {
 		t.log.Error("transaction not found", zap.String("id", dto.ID))
-		return nil, fmt.Errorf("transaction not found")
+		return nil, domain.NotFound("transaction not found")
 	}
 
 	var transactionDetail []*responsedto.ProductTransactionResponse
+	var totalProfit int64
 	for _, d := range result.TransactionDetail {
 		transactionDetail = append(transactionDetail, &responsedto.ProductTransactionResponse{
-			ProductName: d.Product.ProductName,
+			ProductID:   d.ProductID,
+			ProductName: d.ProductName,
 			Price:       d.Price,
 			Qty:         d.Qty,
 			Subtotal:    d.Subtotal,
 		})
+		totalProfit += int64(math.Round(float64(d.Price-d.PurchasePrice) * d.Qty))
 	}
 
 	response := &responsedto.TransactionResponse{
+		TransactionID:      result.ID,
 		InvoiceNumber:      result.NoInvoice,
 		PaymentType:        int(result.PaymentType),
 		TotalTransaction:   result.TotalTransaction,
-		TotalProfit:        0,
+		TotalProfit:        totalProfit,
 		CreatedAt:          result.CreatedAt.Format(time.RFC3339),
 		TransactionDetails: transactionDetail,
 	}
 	return response, nil
 }
 
-// PrintReportMonth implements [domain.TransactionUsecase].
-// Builds a monthly PDF report with total transactions and revenue over
-// one month, then returns the file URL the client can download.
 func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestdto.PrintReportMonthRequest) (*responsedto.PrintReportMonthTransactionResponse, error) {
 	month := dto.Month
 	year := dto.Year
@@ -378,34 +367,37 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 	}
 	if month < 1 || month > 12 {
 		t.log.Error("invalid month", zap.Int("month", month))
-		return nil, fmt.Errorf("invalid month: %d", month)
+		return nil, domain.Validation(fmt.Sprintf("invalid month: %d", month))
 	}
 
 	userId, err := uuid.Parse(dto.UserId)
 	if err != nil {
 		t.log.Error("failed to parse user id", zap.Error(err))
-		return nil, fmt.Errorf("invalid user id format")
+		return nil, domain.InvalidID("invalid user id format")
 	}
 	user, err := t.userRepo.GetUserById(ctx, userId)
 	if err != nil {
 		t.log.Error("failed to get user", zap.Error(err))
-		return nil, fmt.Errorf("failed to get user")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get user: %w", domain.ErrInternal)
 	}
 	if user == nil {
 		t.log.Error("user not found", zap.String("user_id", dto.UserId))
-		return nil, fmt.Errorf("user not found")
+		return nil, domain.NotFound("user not found")
 	}
 
 	report, err := t.trxRepo.GetMonthlyReport(ctx, month, year)
 	if err != nil {
 		t.log.Error("failed to get monthly report", zap.Error(err))
-		return nil, fmt.Errorf("failed to get monthly report")
+		return nil, fmt.Errorf("failed to get monthly report: %w", domain.ErrInternal)
 	}
 
 	dailyReport, err := t.trxRepo.GetDailyReport(ctx, month, year)
 	if err != nil {
 		t.log.Error("failed to get daily report", zap.Error(err))
-		return nil, fmt.Errorf("failed to get daily report")
+		return nil, fmt.Errorf("failed to get daily report: %w", domain.ErrInternal)
 	}
 
 	daily := make([]pdf.MonthReportDailyRow, 0, len(dailyReport))
@@ -422,7 +414,7 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 	productSold, err := t.trxRepo.GetMonthlyProductSold(ctx, month, year)
 	if err != nil {
 		t.log.Error("failed to get monthly product sold", zap.Error(err))
-		return nil, fmt.Errorf("failed to get monthly product sold")
+		return nil, fmt.Errorf("failed to get monthly product sold: %w", domain.ErrInternal)
 	}
 
 	products := make([]pdf.MonthReportProductRow, 0, len(productSold))
@@ -437,11 +429,9 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 	dailyProductSold, err := t.trxRepo.GetDailyProductSold(ctx, month, year)
 	if err != nil {
 		t.log.Error("failed to get daily product sold", zap.Error(err))
-		return nil, fmt.Errorf("failed to get daily product sold")
+		return nil, fmt.Errorf("failed to get daily product sold: %w", domain.ErrInternal)
 	}
 
-	// Group products sold per date. The repo result is already sorted ascending
-	// by date, so just split when the date changes.
 	var dailyProducts []pdf.MonthReportDailyProducts
 	for _, p := range dailyProductSold {
 		n := len(dailyProducts)
@@ -472,7 +462,7 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 	})
 	if err != nil {
 		t.log.Error("failed to generate month report pdf", zap.Error(err))
-		return nil, fmt.Errorf("failed to generate report pdf")
+		return nil, fmt.Errorf("failed to generate report pdf: %w", domain.ErrInternal)
 	}
 
 	return &responsedto.PrintReportMonthTransactionResponse{
@@ -483,9 +473,6 @@ func (t *transactionUsecase) PrintReportMonth(ctx context.Context, dto *requestd
 	}, nil
 }
 
-// PrintReportTransaction implements [domain.TransactionUsecase].
-// Builds a PDF receipt for a single transaction (looked up via trx_id or no_invoice)
-// that can be given to the customer, then returns its file URL.
 func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *requestdto.PrintReportTransactionRequest) (*responsedto.PrintReportTransactionResponse, error) {
 	var trxId uuid.UUID
 
@@ -494,40 +481,42 @@ func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *re
 		parsed, err := uuid.Parse(dto.TrxId)
 		if err != nil {
 			t.log.Error("failed to parse trx id", zap.Error(err))
-			return nil, fmt.Errorf("invalid trx id format")
+			return nil, domain.InvalidID("invalid trx id format")
 		}
 		trxId = parsed
 	case dto.NoInvoice != "":
 		existing, err := t.trxRepo.CheckTransactionByNoInvoice(ctx, dto.NoInvoice)
 		if err != nil {
 			t.log.Error("failed to check transaction", zap.Error(err))
-			return nil, fmt.Errorf("failed to get transaction")
+			return nil, fmt.Errorf("failed to get transaction: %w", domain.ErrInternal)
 		}
 		if existing == nil {
 			t.log.Error("transaction not found", zap.String("no_invoice", dto.NoInvoice))
-			return nil, fmt.Errorf("transaction with no invoice %s not found", dto.NoInvoice)
+			return nil, domain.NotFound(fmt.Sprintf("transaction with no invoice %s not found", dto.NoInvoice))
 		}
 		trxId = existing.ID
 	default:
-		return nil, fmt.Errorf("trx_id or number_invoice is required")
+		return nil, domain.Validation("trx_id or number_invoice is required")
 	}
 
-	// Fetch the full data (User, Customer, and product details preloaded).
 	trx, err := t.trxRepo.GetTransactionByID(ctx, trxId)
 	if err != nil {
 		t.log.Error("failed to get transaction", zap.Error(err))
-		return nil, fmt.Errorf("failed to get transaction")
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to get transaction: %w", domain.ErrInternal)
 	}
 	if trx == nil {
 		t.log.Error("transaction not found", zap.String("trx_id", trxId.String()))
-		return nil, fmt.Errorf("transaction not found")
+		return nil, domain.NotFound("transaction not found")
 	}
 
 	items := make([]pdf.TransactionReportItem, 0, len(trx.TransactionDetail))
 	for _, d := range trx.TransactionDetail {
 
 		items = append(items, pdf.TransactionReportItem{
-			ProductName: d.Product.ProductName,
+			ProductName: d.ProductName,
 			Qty:         d.Qty,
 			Price:       d.Price,
 			Subtotal:    d.Subtotal,
@@ -551,7 +540,7 @@ func (t *transactionUsecase) PrintReportTransaction(ctx context.Context, dto *re
 	})
 	if err != nil {
 		t.log.Error("failed to generate transaction report pdf", zap.Error(err))
-		return nil, fmt.Errorf("failed to generate report pdf")
+		return nil, fmt.Errorf("failed to generate report pdf: %w", domain.ErrInternal)
 	}
 
 	return &responsedto.PrintReportTransactionResponse{

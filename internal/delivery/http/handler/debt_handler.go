@@ -37,13 +37,18 @@ func (h *DebtHandler) Add(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.AddingDebtCustomer(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
+	h.log.Info("audit: manual debt added",
+		zap.String("user_id", middleware.GetUserID(c)),
+		zap.String("customer_id", req.CustomerID),
+		zap.Int64("amount", req.TotalTransaksi),
+		zap.String("jatuh_tempo", req.JatuhTempo),
+	)
 	return response.Success(c, fiber.StatusCreated, "debt created", nil)
 }
 
@@ -55,22 +60,18 @@ func (h *DebtHandler) Add(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteDebtRequest	true	"ID of the debt to delete"
+//	@Param			id		path		string	true	"Debt ID"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/debts [delete]
+//	@Router			/api/debts/{id} [delete]
 func (h *DebtHandler) Delete(c fiber.Ctx) error {
-	var req requestdto.DeleteDebtRequest
-	if err := bindBody(c, &req); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
-	}
-	req.UserId = middleware.GetUserID(c)
+	req := requestdto.DeleteDebtRequest{DebtId: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.DeleteDebtCustomer(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "debt deleted", nil)
 }
@@ -94,10 +95,12 @@ func (h *DebtHandler) List(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
-	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	result, err := h.usecase.GetAllDebtCustomerList(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "debts fetched", result)
 }
@@ -121,9 +124,38 @@ func (h *DebtHandler) Get(c fiber.Ctx) error {
 	}
 	result, err := h.usecase.GetDebtCustomer(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusNotFound, err.Error(), err)
+		return writeError(c, fiber.StatusNotFound, err)
 	}
 	return response.Success(c, fiber.StatusOK, "debt found", result)
+}
+
+// Pay godoc
+//
+//	@Summary		Pay debt in cash
+//	@Description	Records a cash payment made by a customer at the register toward an existing debt. The nominal does not have to cover the full remaining balance.
+//	@Tags			Debts
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			request	body		requestdto.DebtPayment	true	"Cash payment data"
+//	@Success		200		{object}	response.APIResponse
+//	@Failure		400		{object}	response.APIResponse
+//	@Failure		500		{object}	response.APIResponse
+//	@Router			/api/debts/pay [post]
+func (h *DebtHandler) Pay(c fiber.Ctx) error {
+	var req requestdto.DebtPayment
+	if err := bindBody(c, &req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
+	}
+	req.UserID = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
+	result, err := h.usecase.PayDebtCash(c.Context(), &req)
+	if err != nil {
+		return writeError(c, fiber.StatusBadRequest, err)
+	}
+	return response.Success(c, fiber.StatusOK, "debt payment recorded", result)
 }
 
 // Report godoc
@@ -141,16 +173,16 @@ func (h *DebtHandler) Get(c fiber.Ctx) error {
 //	@Failure		500				{object}	response.APIResponse
 //	@Router			/api/debts/report [get]
 func (h *DebtHandler) Report(c fiber.Ctx) error {
-	req := requestdto.PrintDebtReport{
-		UserId:       middleware.GetUserID(c),
-		DebtId:       c.Query("debt_id"),
-		NameCustomer: c.Query("name_customer"),
-		Month:        c.Query("month"),
-		Year:         c.Query("year"),
+	var req requestdto.PrintDebtReport
+	if err := bindQuery(c, &req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
+	}
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	result, err := h.usecase.PrintReportDebtCustomer(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "report generated", result)
 }

@@ -1,6 +1,3 @@
-// Package sheet reads product data from a CSV or Excel (.xlsx) file.
-// This parser is generic: it does not depend on the domain/usecase layer. The caller
-// maps the result to application entities.
 package sheet
 
 import (
@@ -13,22 +10,20 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// ProductRow is a single parsed product row (raw values).
 type ProductRow struct {
-	Line             int // row number in the file (1-based, including the header)
+	Line             int
 	SKU              string
 	ProductName      string
-	Unit             string // raw; parsed by the caller (number or text)
+	Unit             string
 	PurchasePrice    float64
 	SellingPrice     float64
 	SellingPriceDebt float64
 	Stock            float64
 	Category         string
 	Image            string
-	ProductType      string // raw; parsed by the caller. Empty -> physical.
+	ProductType      string
 }
 
-// RowError marks a row that failed to parse along with the reason.
 type RowError struct {
 	Line    int
 	Message string
@@ -38,12 +33,14 @@ func (e RowError) Error() string {
 	return fmt.Sprintf("row %d: %s", e.Line, e.Message)
 }
 
-// required columns in the file.
 var requiredHeaders = []string{"sku", "product_name", "purchase_price", "selling_price", "selling_price_debt"}
 
-// ParseProducts reads products from r. The format is determined by the filename extension
-// (.csv or .xlsx). Returns valid rows, a list of per-row errors (skipped
-// rows), and a fatal error (file unreadable / incomplete header).
+const maxImportRows = 10000
+
+var errTooManyRows = fmt.Errorf("file has more than %d rows", maxImportRows)
+
+var xlsxLimits = excelize.Options{UnzipSizeLimit: 200 << 20, UnzipXMLSizeLimit: 16 << 20}
+
 func ParseProducts(r io.Reader, filename string) ([]ProductRow, []RowError, error) {
 	ext := strings.ToLower(filename)
 	switch {
@@ -62,17 +59,26 @@ func ParseProducts(r io.Reader, filename string) ([]ProductRow, []RowError, erro
 
 func readCSV(r io.Reader) ([][]string, error) {
 	reader := csv.NewReader(r)
-	reader.FieldsPerRecord = -1 // allow a varying number of columns
+	reader.FieldsPerRecord = -1
 	reader.TrimLeadingSpace = true
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read csv: %w", err)
+	var records [][]string
+	for {
+		rec, err := reader.Read()
+		if err == io.EOF {
+			return records, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read csv: %w", err)
+		}
+		if len(records) > maxImportRows {
+			return nil, errTooManyRows
+		}
+		records = append(records, rec)
 	}
-	return records, nil
 }
 
 func readXLSX(r io.Reader) ([][]string, error) {
-	f, err := excelize.OpenReader(r)
+	f, err := excelize.OpenReader(r, xlsxLimits)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read excel: %w", err)
 	}
@@ -82,15 +88,29 @@ func readXLSX(r io.Reader) ([][]string, error) {
 	if len(sheets) == 0 {
 		return nil, fmt.Errorf("excel file has no sheet")
 	}
-	rows, err := f.GetRows(sheets[0])
+	rows, err := f.Rows(sheets[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to read excel rows: %w", err)
 	}
-	return rows, nil
+	defer rows.Close()
+
+	var records [][]string
+	for rows.Next() {
+		if len(records) > maxImportRows {
+			return nil, errTooManyRows
+		}
+		cols, err := rows.Columns()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read excel rows: %w", err)
+		}
+		records = append(records, cols)
+	}
+	if err := rows.Error(); err != nil {
+		return nil, fmt.Errorf("failed to read excel rows: %w", err)
+	}
+	return records, nil
 }
 
-// parseRecords maps raw rows (records) into []ProductRow
-// based on the header in the first row. The err parameter forwards a read error.
 func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, error) {
 	if err != nil {
 		return nil, nil, err
@@ -99,7 +119,6 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 		return nil, nil, fmt.Errorf("file is empty")
 	}
 
-	// Map header name -> column index.
 	colIndex := make(map[string]int)
 	for i, h := range records[0] {
 		colIndex[normalizeHeader(h)] = i
@@ -114,7 +133,7 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 	var rowErrors []RowError
 
 	for i := 1; i < len(records); i++ {
-		line := i + 1 // 1-based, header = baris 1
+		line := i + 1
 		rec := records[i]
 		if isEmptyRecord(rec) {
 			continue
@@ -148,19 +167,19 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 		}
 
 		var parseErr error
-		if row.PurchasePrice, parseErr = parseFloat(get("purchase_price")); parseErr != nil {
+		if row.PurchasePrice, parseErr = parseNonNegativeFloat(get("purchase_price")); parseErr != nil {
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "invalid purchase_price"})
 			continue
 		}
-		if row.SellingPrice, parseErr = parseFloat(get("selling_price")); parseErr != nil {
+		if row.SellingPrice, parseErr = parseNonNegativeFloat(get("selling_price")); parseErr != nil {
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "invalid selling_price"})
 			continue
 		}
-		if row.SellingPriceDebt, parseErr = parseFloat(get("selling_price_debt")); parseErr != nil {
+		if row.SellingPriceDebt, parseErr = parseNonNegativeFloat(get("selling_price_debt")); parseErr != nil {
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "invalid selling_price_debt"})
 			continue
 		}
-		if row.Stock, parseErr = parseFloat(get("stock")); parseErr != nil {
+		if row.Stock, parseErr = parseNonNegativeFloat(get("stock")); parseErr != nil {
 			rowErrors = append(rowErrors, RowError{Line: line, Message: "invalid stock"})
 			continue
 		}
@@ -171,7 +190,6 @@ func parseRecords(records [][]string, err error) ([]ProductRow, []RowError, erro
 	return rows, rowErrors, nil
 }
 
-// normalizeHeader normalizes a header name: lowercase, space/dash -> underscore.
 func normalizeHeader(h string) string {
 	h = strings.ToLower(strings.TrimSpace(h))
 	h = strings.ReplaceAll(h, " ", "_")
@@ -188,10 +206,16 @@ func isEmptyRecord(rec []string) bool {
 	return true
 }
 
-// parseFloat: an empty string is treated as 0.
-func parseFloat(s string) (float64, error) {
+func parseNonNegativeFloat(s string) (float64, error) {
 	if s == "" {
 		return 0, nil
 	}
-	return strconv.ParseFloat(s, 64)
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("value must not be negative")
+	}
+	return v, nil
 }

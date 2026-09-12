@@ -18,7 +18,6 @@ func NewDeviceTokenRepository(db *gorm.DB) domain.DeviceTokenRepository {
 	return &deviceTokenRepository{db: db}
 }
 
-// DeleteDeviceToken implements [domain.DeviceTokenRepository].
 func (d *deviceTokenRepository) DeleteDeviceToken(ctx context.Context, tokens []string) error {
 	if len(tokens) == 0 {
 		return nil
@@ -26,7 +25,6 @@ func (d *deviceTokenRepository) DeleteDeviceToken(ctx context.Context, tokens []
 	return d.db.WithContext(ctx).Where("token IN ?", tokens).Delete(&domain.DeviceToken{}).Error
 }
 
-// DetachDeviceTokenFromUser implements [domain.DeviceTokenRepository].
 func (d *deviceTokenRepository) DetachDeviceTokenFromUser(ctx context.Context, tokens string) error {
 	return d.db.WithContext(ctx).Model(&domain.DeviceToken{}).Where("token = ?", tokens).Updates(map[string]any{
 		"user_id":    nil,
@@ -34,7 +32,6 @@ func (d *deviceTokenRepository) DetachDeviceTokenFromUser(ctx context.Context, t
 	}).Error
 }
 
-// GetDeviceTokensByUserID implements [domain.DeviceTokenRepository].
 func (d *deviceTokenRepository) GetDeviceTokensByUserID(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	var tokens []string
 	err := d.db.WithContext(ctx).Model(&domain.DeviceToken{}).Where("user_id = ?", userID).Pluck("token", &tokens).Error
@@ -44,7 +41,6 @@ func (d *deviceTokenRepository) GetDeviceTokensByUserID(ctx context.Context, use
 	return tokens, nil
 }
 
-// RegisterDeviceToken implements [domain.DeviceTokenRepository].
 func (d *deviceTokenRepository) RegisterDeviceToken(ctx context.Context, dt *domain.DeviceToken) error {
 	dt.LastUsedAt = time.Now()
 	return d.db.WithContext(ctx).Clauses(clause.OnConflict{

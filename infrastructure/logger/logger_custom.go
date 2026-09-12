@@ -3,7 +3,6 @@ package logger
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -39,31 +38,6 @@ func LoggerCustom(env string) {
 			panic("Failed to initialize logger!")
 		}
 	}
-}
-
-func ProductionLog() (*zap.Logger, error) {
-	cfg := zap.NewProductionEncoderConfig()
-	cfg.TimeKey = "timestamp"
-	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(cfg),
-		zapcore.AddSync(os.Stdout),
-		zapcore.InfoLevel,
-	)
-	return zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel)), nil
-}
-
-func DevelopmentLog() (*zap.Logger, error) {
-	cfg := zap.NewDevelopmentEncoderConfig()
-	cfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
-
-	core := zapcore.NewCore(
-		zapcore.NewConsoleEncoder(cfg),
-		zapcore.AddSync(os.Stdout),
-		zapcore.DebugLevel,
-	)
-	return zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel)), nil
 }
 
 func NewGormZapLogger(zapLog *zap.Logger) *GormZapLogger {
@@ -106,29 +80,33 @@ func (l *GormZapLogger) Trace(ctx context.Context, begin time.Time, fc func() (s
 	}
 
 	elapsed := time.Since(begin)
-	sql, rows := fc()
-
-	fields := []zap.Field{
-		zap.String("sql", sql),
-		zap.Int64("rows", rows),
-		zap.Duration("elapsed", elapsed),
-		zap.String("caller", utils.FileWithLineNum()),
-	}
-
+	var (
+		lvl   zapcore.Level
+		msg   string
+		extra zap.Field
+	)
 	switch {
 	case err != nil && l.LogLevel >= gormlogger.Error:
-		if !(errors.Is(err, gormlogger.ErrRecordNotFound) && l.IgnoreRecordNotFoundError) {
-			l.ZapLogger.Error("query error",
-				append(fields, zap.Error(err))...,
-			)
+		if errors.Is(err, gormlogger.ErrRecordNotFound) && l.IgnoreRecordNotFoundError {
+			return
 		}
-
+		lvl, msg, extra = zapcore.ErrorLevel, "query error", zap.Error(err)
 	case l.SlowThreshold != 0 && elapsed > l.SlowThreshold && l.LogLevel >= gormlogger.Warn:
-		l.ZapLogger.Warn("slow query",
-			append(fields, zap.Duration("threshold", l.SlowThreshold))...,
-		)
-
+		lvl, msg, extra = zapcore.WarnLevel, "slow query", zap.Duration("threshold", l.SlowThreshold)
 	case l.LogLevel >= gormlogger.Info:
-		l.ZapLogger.Debug("query", fields...)
+		lvl, msg, extra = zapcore.DebugLevel, "query", zap.Skip()
+	default:
+		return
+	}
+
+	if ce := l.ZapLogger.Check(lvl, msg); ce != nil {
+		sql, rows := fc()
+		ce.Write(
+			zap.String("sql", sql),
+			zap.Int64("rows", rows),
+			zap.Duration("elapsed", elapsed),
+			zap.String("caller", utils.FileWithLineNum()),
+			extra,
+		)
 	}
 }

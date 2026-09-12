@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var migrateResetForce bool
+
 var migrateResetCmd = &cobra.Command{
 	Use:   "migrate-reset",
 	Short: "Delete All table and do re-migrate",
@@ -18,6 +20,9 @@ var migrateResetCmd = &cobra.Command{
 		env := os.Getenv("APP_ENV")
 		zaplogger.LoggerCustom(env)
 		defer zaplogger.Logger.Sync()
+		if env == "production" && !migrateResetForce {
+			zaplogger.Logger.Fatal("migrate-reset drops every table; refusing on APP_ENV=production without --force")
+		}
 		envConf, err := envconfig.InitEnvConfig(zaplogger.Logger)
 		if err != nil {
 			zaplogger.Logger.Fatal("Failed to initialize environment config: %v", zap.Error(err))
@@ -40,5 +45,6 @@ var migrateResetCmd = &cobra.Command{
 }
 
 func init() {
+	migrateResetCmd.Flags().BoolVar(&migrateResetForce, "force", false, "allow migrate-reset on APP_ENV=production (drops every table)")
 	rootCmd.AddCommand(migrateResetCmd)
 }

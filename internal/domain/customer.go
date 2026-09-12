@@ -19,9 +19,6 @@ type Customers struct {
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-
-	Transactions []Transactions `gorm:"foreignKey:CustomerID" json:"transactions,omitempty"`
-	Debts        []Debts        `gorm:"foreignKey:CustomerID" json:"debts,omitempty"`
 }
 
 func (c *Customers) TableName() string {
@@ -42,15 +39,11 @@ type CustomersPaginated struct {
 }
 
 type CustomerRepository interface {
-	GetCustomer(ctx context.Context, id uuid.UUID) (*[]Customers, error)
-	// ExistsCustomer reports whether a (non-deleted) customer with the given id
-	// exists, without loading the customer or its associations — used on hot
-	// paths (e.g. debt transaction creation) that only need existence.
+	GetCustomer(ctx context.Context, id uuid.UUID) (*Customers, error)
 	ExistsCustomer(ctx context.Context, id uuid.UUID) (bool, error)
 	UpdateCustomer(ctx context.Context, id uuid.UUID, customer *Customers) error
 	AddCustomer(ctx context.Context, customer *Customers) error
 	DeleteCustomer(ctx context.Context, id uuid.UUID) error
-	GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error)
 	GetAllCustomer(ctx context.Context, filter FilterCustomer) (*CustomersPaginated, error)
 }
 

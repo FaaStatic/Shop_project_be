@@ -1,42 +1,36 @@
 package requestdto
 
 type DebtPayment struct {
-	DebtID       string  `json:"debt_id" validate:"required"`
-	UserID       string  `json:"user_id" validate:"required"`
-	NominalBayar float64 `json:"nominal_bayar" validate:"required,gt=0"`
+	DebtID         string  `json:"debt_id" validate:"required,uuid"`
+	UserID         string  `json:"user_id" validate:"required,uuid"`
+	NominalBayar   int64   `json:"nominal_bayar" validate:"required,gt=0"`
+	IdempotencyKey *string `json:"idempotency_key,omitempty" validate:"omitempty,max=100"`
 }
 
 type GetDebtRequest struct {
-	DebtId string `query:"debt_id" validate:"required"`
+	DebtId string `query:"debt_id" validate:"required,uuid"`
 }
 
 type FilterDebtRequest struct {
-	UserId     string  `query:"user_id" validate:"required"`
 	CustomerId string  `query:"customer_id"`
-	Month      string  `query:"month"`
-	Year       string  `query:"year"`
-	Limit      int     `query:"limit"`
-	Order      string  `query:"order"`
+	Search     string  `query:"search"`
+	Status     *int    `query:"status" validate:"omitempty,oneof=0 1"`
+	Limit      int     `query:"limit" validate:"omitempty,min=1,max=100"`
+	Order      string  `query:"order" validate:"omitempty,oneof=asc desc ASC DESC"`
 	AfterID    *string `query:"after_id,omitempty"`
 	AfterTime  *string `query:"after_time,omitempty"`
 }
 
 type AddDebtRequest struct {
-	UserId         string  `json:"user_id" validate:"required"`
-	CustomerID     string  `json:"customer_id" validate:"required"`
-	TotalTransaksi float64 `json:"total_transaksi" validate:"required,gt=0"`
-	JatuhTempo     string  `json:"jatuh_tempo" validate:"required"`
+	CustomerID     string `json:"customer_id" validate:"required,uuid"`
+	TotalTransaksi int64  `json:"total_transaksi" validate:"required,gt=0"`
+	JatuhTempo     string `json:"jatuh_tempo" validate:"required"`
 }
 
 type DeleteDebtRequest struct {
-	UserId string `json:"user_id" validate:"required"`
-	DebtId string `json:"debt_id" validate:"required"`
+	DebtId string `json:"debt_id" validate:"required,uuid"`
 }
 
 type PrintDebtReport struct {
-	UserId       string `json:"user_id" validate:"required"`
-	DebtId       string `json:"debt_id,omitempty"`
-	NameCustomer string `json:"name_customer,omitempty"`
-	Month        string `json:"month" validate:"required"`
-	Year         string `json:"year" validate:"required"`
+	DebtId string `query:"debt_id" validate:"required,uuid"`
 }

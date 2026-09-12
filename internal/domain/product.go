@@ -18,9 +18,9 @@ type Products struct {
 	ProductName      string           `gorm:"type:varchar(255);not null" json:"product_name"`
 	Unit             enum.ProductUnit `gorm:"type:smallint;check:unit IN (0,1,2,3,4,5);not null" json:"unit"`
 	ProductType      enum.ProductType `gorm:"column:product_type;type:smallint;check:product_type IN (0,1);not null;default:0" json:"product_type"`
-	PurchasePrice    float64          `gorm:"type:decimal(15,2);not null" json:"purchase_price"`
-	SellingPrice     float64          `gorm:"type:decimal(15,2);not null" json:"selling_price"`
-	SellingPriceDebt float64          `gorm:"type:decimal(15,2);not null" json:"selling_price_debt"`
+	PurchasePrice    int64            `gorm:"type:bigint;not null" json:"purchase_price"`
+	SellingPrice     int64            `gorm:"type:bigint;not null" json:"selling_price"`
+	SellingPriceDebt int64            `gorm:"type:bigint;not null" json:"selling_price_debt"`
 	Stock            float64          `gorm:"type:decimal(10,2);default:0" json:"stock"`
 	Category         string           `gorm:"type:varchar(100);index" json:"category"`
 	Image            string           `gorm:"type:text" json:"image"`
@@ -56,23 +56,18 @@ type PaginatedItem struct {
 
 type ProductRepository interface {
 	AddProduct(ctx context.Context, product *Products) error
-	UpdateProduct(ctx context.Context, product *Products, id uuid.UUID) error
 	AddBulkProduct(ctx context.Context, products []*Products) (*BulkInsertResult, error)
 	DeleteProduct(ctx context.Context, id uuid.UUID) error
 	GetProduct(ctx context.Context, id uuid.UUID) (*Products, error)
+	GetProductIncludingDeleted(ctx context.Context, id uuid.UUID) (*Products, error)
 	GetAllProduct(ctx context.Context, filter FilterAllProduct) (*PaginatedItem, error)
 	UpdateStockWithLock(ctx context.Context, id uuid.UUID, delta float64) error
 	UpdateProductWithLock(ctx context.Context, id uuid.UUID, fields map[string]interface{}, stockDelta float64) error
-	// ReserveStock atomically deducts stock for all items (all-or-nothing) when
-	// an online payment charge is created; RestoreStock returns it if the charge
-	// fails to be created or the payment lapses.
-	ReserveStock(ctx context.Context, items []PaymentItem) error
-	RestoreStock(ctx context.Context, items []PaymentItem) error
 }
 
 type ProductUsecase interface {
 	AddProductShopWithLock(ctx context.Context, request *requestdto.AddProduct) error
-	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) error
+	AddBulkProductShopWithLock(ctx context.Context, request *requestdto.AddBulkProduct) (*responsedto.ProductBulkImportResponse, error)
 	DeleteProductShop(ctx context.Context, request *requestdto.DeleteProduct) error
 	GetProductShop(ctx context.Context, request *requestdto.GetProduct) (*Products, error)
 	GetAllProductShop(ctx context.Context, request *requestdto.GetAllProduct) (*responsedto.GetAllProductResponse, error)

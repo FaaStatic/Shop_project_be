@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"shop_project_be/internal/delivery/http/middleware"
 	"shop_project_be/internal/domain"
 	requestdto "shop_project_be/internal/dto/request_dto"
 	"shop_project_be/pkg/response"
@@ -37,12 +36,11 @@ func (h *CustomerHandler) Add(c fiber.Ctx) error {
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.AddCustomerShop(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusCreated, "customer created", nil)
 }
@@ -55,22 +53,23 @@ func (h *CustomerHandler) Add(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
+//	@Param			id		path		string	true	"Customer ID"
 //	@Param			request	body		requestdto.UpdateCustomer	true	"Updated customer data"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/customers [put]
+//	@Router			/api/customers/{id} [put]
 func (h *CustomerHandler) Update(c fiber.Ctx) error {
 	var req requestdto.UpdateCustomer
 	if err := bindBody(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
 	}
-	req.UserId = middleware.GetUserID(c)
+	req.CustomerId = c.Params("id")
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.UpdateCustomerShop(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "customer updated", nil)
 }
@@ -83,22 +82,18 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			request	body		requestdto.DeleteCustomer	true	"ID of the customer to delete"
+//	@Param			id		path		string	true	"Customer ID"
 //	@Success		200		{object}	response.APIResponse
 //	@Failure		400		{object}	response.APIResponse
 //	@Failure		500		{object}	response.APIResponse
-//	@Router			/api/customers [delete]
+//	@Router			/api/customers/{id} [delete]
 func (h *CustomerHandler) Delete(c fiber.Ctx) error {
-	var req requestdto.DeleteCustomer
-	if err := bindBody(c, &req); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid request body", err)
-	}
-	req.UserId = middleware.GetUserID(c)
+	req := requestdto.DeleteCustomer{CustomerId: c.Params("id")}
 	if err := validate.Validate(&req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
 	}
 	if err := h.usecase.DeleteCustomerShop(c.Context(), &req); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "customer deleted", nil)
 }
@@ -122,7 +117,7 @@ func (h *CustomerHandler) Get(c fiber.Ctx) error {
 	}
 	customer, err := h.usecase.GetCustomerShop(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusNotFound, err.Error(), err)
+		return writeError(c, fiber.StatusNotFound, err)
 	}
 	return response.Success(c, fiber.StatusOK, "customer found", customer)
 }
@@ -148,10 +143,12 @@ func (h *CustomerHandler) List(c fiber.Ctx) error {
 	if err := bindQuery(c, &req); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid query", err)
 	}
-	req.UserId = middleware.GetUserID(c)
+	if err := validate.Validate(&req); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "validation failed", err)
+	}
 	customers, err := h.usecase.GetListCustomerShop(c.Context(), &req)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, err.Error(), err)
+		return writeError(c, fiber.StatusInternalServerError, err)
 	}
 	return response.Success(c, fiber.StatusOK, "customers fetched", customers)
 }

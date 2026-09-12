@@ -7,9 +7,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// MigrateDB applies versioned (goose) migrations to the database. The schema is no longer
-// managed via GORM AutoMigrate; every structural change must be added
-// as a new SQL file in infrastructure/database/migrations.
 func MigrateDB(log *zap.Logger) error {
 	envConf, err := envconfig.InitEnvConfig(log)
 	if err != nil {

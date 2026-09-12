@@ -3,24 +3,36 @@ package responsedto
 import "github.com/google/uuid"
 
 type AddTransactionResponse struct {
-	Message string `json:"message"`
-	Status  int    `json:"status"`
+	TransactionID    uuid.UUID            `json:"transaction_id"`
+	NoInvoice        string               `json:"no_invoice"`
+	TotalTransaction int64                `json:"total_transaction"`
+	PaymentType      string               `json:"payment_type"`
+	DebtInfo         *DebtTransactionInfo `json:"debt_info,omitempty"`
+}
+
+type DebtTransactionInfo struct {
+	DebtID                string `json:"debt_id"`
+	PreviousRemainingDebt int64  `json:"previous_remaining_debt"`
+	AmountAdded           int64  `json:"amount_added"`
+	TotalDebt             int64  `json:"total_debt"`
+	RemainingDebt         int64  `json:"remaining_debt"`
+	Status                string `json:"status"`
 }
 
 type ProductTransactionResponse struct {
 	ProductID   uuid.UUID `json:"product_id"`
 	ProductName string    `json:"product_name"`
-	Price       float64   `json:"price"`
+	Price       int64     `json:"price"`
 	Qty         float64   `json:"qty"`
-	Subtotal    float64   `json:"subtotal"`
+	Subtotal    int64     `json:"subtotal"`
 }
 
 type TransactionResponse struct {
-	TransactionID      uuid.UUID                     `json:"trx_id"`
+	TransactionID      uuid.UUID                     `json:"transaction_id"`
 	InvoiceNumber      string                        `json:"invoice_number"`
 	PaymentType        int                           `json:"payment_type"`
-	TotalTransaction   float64                       `json:"total_transaction"`
-	TotalProfit        float64                       `json:"total_profit"`
+	TotalTransaction   int64                         `json:"total_transaction"`
+	TotalProfit        int64                         `json:"total_profit"`
 	CreatedAt          string                        `json:"created_at"`
 	TransactionDetails []*ProductTransactionResponse `json:"transaction_details"`
 }
@@ -42,6 +54,6 @@ type PrintReportTransactionResponse struct {
 type PrintReportMonthTransactionResponse struct {
 	ID     uuid.UUID `json:"id"`
 	Month  string    `json:"month"`
-	Year   string    `json:"Year"`
+	Year   string    `json:"year"`
 	UrlPdf string    `json:"url_pdf"`
 }

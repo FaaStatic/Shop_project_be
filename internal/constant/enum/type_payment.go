@@ -14,6 +14,8 @@ const (
 	qris
 )
 
+const Hutang MoneyPayment = hutang
+
 func (typeItem MoneyPayment) String() string {
 	switch typeItem {
 	case tunai:

@@ -51,7 +51,6 @@ var serverRun = &cobra.Command{
 			loggerconfig.Logger.Fatal("failed to init database", zap.Error(err))
 		}
 
-		// Repository
 		productRepo := repository.NewProductRepository(db)
 		trxRepo := repository.NewTransactionRepository(db)
 		userRepo := repository.NewUserRepository(db)
@@ -61,8 +60,9 @@ var serverRun = &cobra.Command{
 		sessionRepo := repository.NewSessionRepository(redisClient)
 		fcmRepo := repository.NewDeviceTokenRepository(db)
 
-		// Service
-		jwtService := jwt.NewJWTService(envConf.JWT.Secret, envConf.JWT.AccessTokenTTL, envConf.JWT.RefreshTokenTTL)
+		jwtService := jwt.NewJWTService(envConf.JWT.Secret,
+			time.Duration(envConf.JWT.AccessTokenTTL)*time.Second,
+			time.Duration(envConf.JWT.RefreshTokenTTL)*time.Second)
 		midtransGateway := payment.NewMidtransGateway(envConf.Midtrans.ServerKey, envConf.Midtrans.Environment)
 		sender, err := fcm.NewSender(ctxBg, envConf.FirebaseStr.GOOGLE_APPLICATION_CREDENTIALS)
 
@@ -70,7 +70,6 @@ var serverRun = &cobra.Command{
 			loggerconfig.Logger.Fatal("fail init FCM sender", zap.Error(err))
 		}
 
-		// Usecase
 		productUC := usecase.NewProductUsecase(productRepo, loggerconfig.Logger)
 		trxUC := usecase.NewTransactionUsecase(trxRepo, productRepo, userRepo, customerRepo, debtRepo, envConf.App.Name, loggerconfig.Logger)
 		customerUC := usecase.NewCustomerUsecase(customerRepo, loggerconfig.Logger)
@@ -79,27 +78,15 @@ var serverRun = &cobra.Command{
 		fcmUC := usecase.NewFcmUsecase(sender, fcmRepo, loggerconfig.Logger)
 		paymentUC := usecase.NewPaymentUsecase(paymentRepo, midtransGateway, productRepo, trxUC, trxRepo, fcmUC, loggerconfig.Logger)
 
-		// rootCtx is cancelled on SIGINT/SIGTERM: used to trigger Fiber's graceful
-		// shutdown and to stop the reconciliation goroutine
-		// cleanly (without cutting off a sweep already in progress).
 		rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		// Periodic reconciliation: pending payments whose webhook never
-		// arrived are queried against Midtrans — lapsed stock reservations
-		// are released, missed settlements are finalized. Skipped entirely
-		// when Midtrans isn'''t configured (no online payments can exist to reconcile).
 		if !envConf.Midtrans.Configured() {
 			loggerconfig.Logger.Warn("midtrans not configured: online payment routes disabled")
 		}
-		// Run the reconciliation sweep in exactly ONE process. With prefork enabled
-		// every child re-executes this program, so without this guard each child
-		// would run its own sweep (N× redundant Midtrans calls). fiber.IsChild() is
-		// false for the supervising master (prefork on) and for the sole process
-		// (prefork off), so the sweep runs once in both modes.
 		if envConf.Midtrans.Configured() && !fiber.IsChild() {
 			go func() {
-				ticker := time.NewTicker(10 * time.Minute)
+				ticker := time.NewTicker(2 * time.Minute)
 				defer ticker.Stop()
 				for {
 					select {
@@ -114,9 +101,8 @@ var serverRun = &cobra.Command{
 			}()
 		}
 
-		// Handler & middleware
 		handlers := route.Handlers{
-			User:        handler.NewUserHandler(userUC, loggerconfig.Logger),
+			User:        handler.NewUserHandler(userUC, fcmUC, loggerconfig.Logger),
 			Product:     handler.NewProductHandler(productUC, loggerconfig.Logger),
 			Transaction: handler.NewTransactionHandler(trxUC, loggerconfig.Logger),
 			Customer:    handler.NewCustomerHandler(customerUC, loggerconfig.Logger),

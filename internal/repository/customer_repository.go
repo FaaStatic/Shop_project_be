@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"shop_project_be/internal/constant/paginated"
+	"shop_project_be/internal/constant/enum"
 	"shop_project_be/internal/domain"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type customerRepository struct {
@@ -20,20 +22,6 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 	return &customerRepository{db: db}
 }
 
-// GetDebtIdByCustomerId implements [domain.CustomerRepository].
-func (c *customerRepository) GetDebtIdByCustomerId(ctx context.Context, customerId uuid.UUID) (*uuid.UUID, error) {
-	var debtId uuid.UUID
-	// REQUIRED .Model(&domain.Debts{}): Pluck without a model errors with "table not set".
-	result := c.db.WithContext(ctx).Model(&domain.Debts{}).Where("customer_id = ?", customerId).Pluck("id", &debtId)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get debt: %w", result.Error)
-	}
-	return &debtId, nil
-}
-
-// ExistsCustomer implements [domain.CustomerRepository]. Counts by id only so
-// no row data or associations are loaded (soft-deleted rows are excluded by the
-// default gorm scope).
 func (c *customerRepository) ExistsCustomer(ctx context.Context, id uuid.UUID) (bool, error) {
 	var count int64
 	if err := c.db.WithContext(ctx).Model(&domain.Customers{}).
@@ -43,7 +31,6 @@ func (c *customerRepository) ExistsCustomer(ctx context.Context, id uuid.UUID) (
 	return count > 0, nil
 }
 
-// AddCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) AddCustomer(ctx context.Context, customer *domain.Customers) error {
 	result := c.db.WithContext(ctx).Create(customer)
 	if result.Error != nil {
@@ -52,47 +39,56 @@ func (c *customerRepository) AddCustomer(ctx context.Context, customer *domain.C
 	return nil
 }
 
-// DeleteCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
-	result := c.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.Customers{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to delete customer: %w", result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("customer with id %s not found", id)
+	return runTxDB(ctx, c.db, func(tx *gorm.DB) error {
+		var customer domain.Customers
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&customer).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
+			}
+			return internalErr(fmt.Errorf("failed to lock customer: %w", err))
+		}
+		var openDebts int64
+		if err := tx.Model(&domain.Debts{}).
+			Where("customer_id = ? AND status = ?", id, enum.BELUM_LUNAS).
+			Count(&openDebts).Error; err != nil {
+			return internalErr(fmt.Errorf("failed to count open debts: %w", err))
+		}
+		if openDebts > 0 {
+			return domain.Conflict(fmt.Sprintf("customer %s cannot be deleted: they still have an unpaid debt; settle it first", id))
+		}
+		if err := tx.Delete(&customer).Error; err != nil {
+			return internalErr(fmt.Errorf("failed to delete customer: %w", err))
+		}
+		return nil
+	})
+}
+
+func lockCustomerShared(tx *gorm.DB, id uuid.UUID) error {
+	var customer domain.Customers
+	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Select("id").
+		Where("id = ?", id).First(&customer).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
+		}
+		return internalErr(fmt.Errorf("failed to lock customer: %w", err))
 	}
 	return nil
 }
 
-// GetCustomer implements [domain.CustomerRepository].
-func (c *customerRepository) GetCustomer(ctx context.Context, id uuid.UUID) (*[]domain.Customers, error) {
-	var customers []domain.Customers
-	result := c.db.Preload("Transactions").Preload("Debts").WithContext(ctx).Where("id = ?", id).First(&customers)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("customer with id %s not found: %w", id, result.Error)
+func (c *customerRepository) GetCustomer(ctx context.Context, id uuid.UUID) (*domain.Customers, error) {
+	var customer domain.Customers
+	if err := c.db.WithContext(ctx).Where("id = ?", id).First(&customer).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 		}
-		return nil, fmt.Errorf("failed to get customer: %w", result.Error)
+		return nil, fmt.Errorf("failed to get customer: %w", err)
 	}
-	if len(customers) == 0 {
-		return nil, fmt.Errorf("customer with id %s not found", id)
-	}
-	return &customers, nil
+	return &customer, nil
 }
 
-// GetAllCustomer implements [domain.CustomerRepository].
-// Fetches the customer list with optional name search and cursor
-// pagination (created_at + id as tie-breaker). Fetch limit+1 rows to
-// detect whether there is a next page (has_next).
 func (c *customerRepository) GetAllCustomer(ctx context.Context, filter domain.FilterCustomer) (*domain.CustomersPaginated, error) {
-	if filter.Limit <= 0 || filter.Limit > 100 {
-		filter.Limit = 10
-	}
-
-	order := "DESC"
-	if strings.ToUpper(filter.Order) == "ASC" {
-		order = "ASC"
-	}
+	limit, order := pageParams(filter.Limit, filter.Order)
 
 	query := c.db.WithContext(ctx).Model(&domain.Customers{})
 	if filter.Search != "" {
@@ -100,56 +96,26 @@ func (c *customerRepository) GetAllCustomer(ctx context.Context, filter domain.F
 		query = query.Where("name LIKE ? ESCAPE '\\'", "%"+escaped+"%")
 	}
 
-	if filter.Cursor != nil {
-		if order == "ASC" {
-			query = query.Where("(created_at > ?) OR (created_at = ? AND id > ?)",
-				filter.Cursor.AfterTime,
-				filter.Cursor.AfterTime,
-				filter.Cursor.AfterID,
-			)
-		} else {
-			query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)",
-				filter.Cursor.AfterTime,
-				filter.Cursor.AfterTime,
-				filter.Cursor.AfterID,
-			)
-		}
-	}
-
 	var items []*domain.Customers
-	result := query.Order("created_at " + order + ", id " + order).Limit(filter.Limit + 1).Find(&items)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get customers: %w", result.Error)
+	if err := keysetPage(query, "", limit, order, filter.Cursor).Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to get customers: %w", err)
 	}
-
-	hasNext := len(items) > filter.Limit
-	if hasNext {
-		items = items[:filter.Limit]
-	}
-	var nextCursor *paginated.CursorMeta
-	if hasNext && len(items) > 0 {
-		last := items[len(items)-1]
-		nextCursor = &paginated.CursorMeta{
-			AfterTime: last.CreatedAt,
-			AfterID:   last.ID,
-		}
-	}
+	items, hasNext, next := trimPage(items, limit, func(c *domain.Customers) (time.Time, uuid.UUID) { return c.CreatedAt, c.ID })
 
 	return &domain.CustomersPaginated{
 		DataItem: items,
 		HasNext:  hasNext,
-		Cursor:   nextCursor,
+		Cursor:   next,
 	}, nil
 }
 
-// UpdateCustomer implements [domain.CustomerRepository].
 func (c *customerRepository) UpdateCustomer(ctx context.Context, id uuid.UUID, customer *domain.Customers) error {
 	result := c.db.WithContext(ctx).Model(&domain.Customers{}).Where("id = ?", id).Updates(customer)
 	if result.Error != nil {
 		return fmt.Errorf("failed to update customer: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("customer with id %s not found", id)
+		return domain.NotFound(fmt.Sprintf("customer with id %s not found", id))
 	}
 	return nil
 }

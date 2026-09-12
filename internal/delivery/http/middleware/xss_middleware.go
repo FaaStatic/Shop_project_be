@@ -15,5 +15,6 @@ func GetXSSConfig() helmet.Config {
 		XDNSPrefetchControl:       "off",
 		XDownloadOptions:          "noopen",
 		XPermittedCrossDomain:     "none",
+		ContentSecurityPolicy:     "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com; font-src 'self'; connect-src 'self'",
 	}
 }

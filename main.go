@@ -5,6 +5,7 @@
 //	@description	REST API backend for the novi_shop cashier/store application.
 //	@host			localhost:3030
 //	@BasePath		/
+//	@schemes		http
 //
 //	@securityDefinitions.apikey	BearerAuth
 //	@in								header

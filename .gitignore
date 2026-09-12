@@ -29,3 +29,5 @@ docs
 *.xlsx
 Dockerfile
 docker-compose.yml
+.opencode
+*.md

@@ -11,25 +11,26 @@ type ProductDtoResponse struct {
 	SKU              string    `json:"sku"`
 	ProductName      string    `json:"product_name"`
 	Unit             int       `json:"unit"`
-	PurchasePrice    float64   `json:"purchase_price"`
-	SellingPrice     float64   `json:"selling_price"`
-	SellingPriceDebt float64   `json:"selling_price_debt"`
+	PurchasePrice    int64     `json:"purchase_price"`
+	SellingPrice     int64     `json:"selling_price"`
+	SellingPriceDebt int64     `json:"selling_price_debt"`
 	Stock            float64   `json:"stock"`
 	Category         string    `json:"category"`
 	Image            string    `json:"image"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-type ProductAddBulkResponse struct {
-	Message string `json:"message"`
-	Status  int    `json:"status"`
+type ProductBulkImportResponse struct {
+	TotalInserted   int                  `json:"total_inserted"`
+	TotalSkipped    int                  `json:"total_skipped"`
+	SkippedSKUs     []string             `json:"skipped_skus"`
+	DuplicateInFile []string             `json:"duplicate_in_file"`
+	RowErrors       []BulkImportRowError `json:"row_errors"`
 }
 
-type GetProductResponse struct {
-	UserId   string `json:"user_id"`
-	NameUser string `json:"name_user"`
-
-	Product []ProductDtoResponse `json:"product"`
+type BulkImportRowError struct {
+	Line    int    `json:"line"`
+	Message string `json:"message"`
 }
 
 type GetAllProductResponse struct {
@@ -37,6 +38,5 @@ type GetAllProductResponse struct {
 	NextId      string               `json:"next_id"`
 	NextTime    string               `json:"next_time"`
 	HasNext     bool                 `json:"has_next"`
-	Page        int                  `json:"page"`
 	ProductList []ProductDtoResponse `json:"product_list"`
 }
