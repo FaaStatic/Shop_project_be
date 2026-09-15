@@ -33,7 +33,14 @@ func LoggerCustom(env string) {
 			panic("Failed to initialize logger!")
 		}
 	} else {
-		Logger, err = zap.NewDevelopment()
+
+		config := zap.NewDevelopmentConfig()
+
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		config.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+
+		Logger, err = config.Build()
 		if err != nil {
 			panic("Failed to initialize logger!")
 		}

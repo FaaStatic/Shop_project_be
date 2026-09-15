@@ -96,6 +96,9 @@ func loadSwaggerSpec(nameApp string) []byte {
 		info["title"] = nameApp + " API"
 	}
 
+	delete(spec, "host")
+	delete(spec, "schemes")
+
 	patched, err := json.Marshal(spec)
 	if err != nil {
 		return raw
@@ -103,7 +106,13 @@ func loadSwaggerSpec(nameApp string) []byte {
 	return patched
 }
 
-func GetSwaggerConfig(nameApp string) swagger.Config {
+func GetSwaggerConfig(nameApp string, isDev bool) swagger.Config {
+	cacheAge := 1
+	if !isDev {
+		cacheAge = 3600
+	} else {
+		cacheAge = 1
+	}
 	return swagger.Config{
 		Next:        nil,
 		BasePath:    "/",
@@ -111,7 +120,7 @@ func GetSwaggerConfig(nameApp string) swagger.Config {
 		FileContent: loadSwaggerSpec(nameApp),
 		Path:        "/",
 		Title:       nameApp + " API documentation",
-		CacheAge:    3600,
+		CacheAge:    cacheAge,
 	}
 }
 
@@ -127,7 +136,9 @@ func InitFiber(env string, envData *envconfig.Config, logger *zap.Logger, redisC
 	app.Use(middleware.LoggerMiddleware(logger))
 
 	if env != "production" {
-		app.Use(swagger.New(GetSwaggerConfig(envData.App.Name)))
+		app.Use(swagger.New(GetSwaggerConfig(envData.App.Name, true)))
+	} else {
+		app.Use(swagger.New(GetSwaggerConfig(envData.App.Name, false)))
 	}
 
 	for _, register := range routes {
